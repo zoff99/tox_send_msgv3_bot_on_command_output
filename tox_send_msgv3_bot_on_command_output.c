@@ -131,8 +131,6 @@ struct Node2 {
     { NULL, NULL, 0, 0 }
 };
 
-const char *ngc_group_key = "360497DA684BCE2A500C1AF9B3A5CE949BBB9F6FB1F91589806FB04CA039E313";
-
 void dbg(int level, const char *fmt, ...)
 {
     char *level_and_format = NULL;
@@ -491,20 +489,13 @@ static void set_cb(Tox *tox1)
     tox_callback_self_connection_status(tox1, self_connection_change_callback);
     tox_callback_friend_connection_status(tox1, friend_connection_status_callback);
     tox_callback_friend_request(tox1, friend_request_callback);
-    tox_callback_group_invite(tox1, group_invite_cb);
-    tox_callback_group_peer_join(tox1, group_peer_join_cb);
-    tox_callback_group_self_join(tox1, group_self_join_cb);
-    tox_callback_group_peer_exit(tox1, group_peer_exit_cb);
-    tox_callback_group_join_fail(tox1, group_join_fail_cb);
     // ---------- CALLBACKS ----------
 }
 
 static void print_stats(Tox *tox, int num)
 {
     uint32_t num_friends = tox_self_get_friend_list_size(tox);
-    uint32_t num_groups = tox_group_get_number_groups(tox);
     dbg(9, "[%d]:tox num_friends:%d\n", num, num_friends);
-    dbg(9, "[%d]:tox num_groups:%d\n", num, num_groups);
 }
 
 int main(void)
@@ -514,50 +505,31 @@ int main(void)
     setvbuf(logfile, NULL, _IOLBF, 0);
 
     dbg(9, "--start--\n");
-    
-    for (uint8_t k=0;k<spin;k++)
-    {
-        toxes[k] = tox_init(k);
-        dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
 
-        uint8_t public_key_bin1[TOX_ADDRESS_SIZE];
-        char    public_key_str1[TOX_ADDRESS_SIZE * 2];
-        tox_self_get_address(toxes[k], public_key_bin1);
-        to_hex(public_key_str1, public_key_bin1, TOX_ADDRESS_SIZE);
-        dbg(9, "[%d]:ID:1: %.*s\n", k, TOX_ADDRESS_SIZE * 2, public_key_str1);
+    uint8_t k = 0;
+    toxes[k] = tox_init(k);
+    dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
 
-        tox_connect(toxes[k], 1);
-        set_cb(toxes[k]);
+    uint8_t public_key_bin1[TOX_ADDRESS_SIZE];
+    char    public_key_str1[TOX_ADDRESS_SIZE * 2];
+    tox_self_get_address(toxes[k], public_key_bin1);
+    to_hex(public_key_str1, public_key_bin1, TOX_ADDRESS_SIZE);
+    dbg(9, "[%d]:ID:1: %.*s\n", k, TOX_ADDRESS_SIZE * 2, public_key_str1);
 
-        tox_iterate(toxes[k], &x);
-    }
+    tox_connect(toxes[k], 1);
+    set_cb(toxes[k]);
 
-    for (uint8_t k=0;k<spin;k++)
-    {
-        for (uint8_t j=0;j<spin;j++)
-        {
-            uint8_t public_key_bin1[TOX_ADDRESS_SIZE];
-            tox_self_get_address(toxes[j], public_key_bin1);
-            if (j != k)
-            {
-                tox_friend_add_norequest(toxes[k], public_key_bin1, NULL);
-                dbg(9, "[%d]:ID:1: adding friend %d\n", k, j);
-            }
-        }
-    }
+    tox_iterate(toxes[k], &x);
 
     long save_iters = 800000;
     long counter = save_iters - 10;
     while (1 == 1) {
         counter++;
-        for (uint8_t k=0;k<spin;k++)
+        tox_iterate(toxes[k], &x);
+        if (counter >= save_iters)
         {
-            tox_iterate(toxes[k], &x);
-            if (counter >= save_iters)
-            {
-                update_savedata_file(toxes[k], k);
-                dbg(9, "[%d]:ID:1: saving data\n", k);
-            }
+            update_savedata_file(toxes[k], k);
+            dbg(9, "[%d]:ID:1: saving data\n", k);
         }
         if (counter >= save_iters)
         {
