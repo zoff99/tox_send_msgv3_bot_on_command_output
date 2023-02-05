@@ -63,6 +63,7 @@ gcc -O2 -g -fPIC -I/workspace/build/inst_ct/include \
     /workspace/build/inst_ct/lib/libtoxencryptsave.a \
     -l:libsodium.a \
     -lpthread \
+    -lcurl \
     -o tox_send_msgv3_bot_on_command_output
 
 #    -fsanitize=address -fno-omit-frame-pointer \

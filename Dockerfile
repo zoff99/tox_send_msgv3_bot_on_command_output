@@ -15,4 +15,4 @@ export LDFLAGS=" -O2 -L$_INST_/lib -fPIC " && \
 make clean && \
 make -j $(nproc) && \
 make install
-
+RUN export DEBIAN_FRONTEND=noninteractive ; apt install -y libcurl4-gnutls-dev
