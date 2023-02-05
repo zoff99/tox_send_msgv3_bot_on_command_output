@@ -32,7 +32,7 @@ for system_to_build_for in $build_for ; do
 
     ls -al $_HOME_/"$system_to_build_for"/
 
-    rsync -a ./pubjoin_group_ngc_test.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
+    rsync -a ./tox_send_msgv3_bot_on_command_output.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
     chmod a+rwx -R $_HOME_/"$system_to_build_for"/workspace/build >/dev/null 2>/dev/null
 
     echo '#! /bin/bash
