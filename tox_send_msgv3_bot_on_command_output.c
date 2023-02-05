@@ -32,7 +32,10 @@
 #include <signal.h>
 #include <linux/sched.h>
 
+#include <sodium/utils.h>
+
 #include <tox/tox.h>
+#include <curl/curl.h>
 
 #define CURRENT_LOG_LEVEL 9 // 0 -> error, 1 -> warn, 2 -> info, 9 -> debug
 const char *log_filename = "output.log";
@@ -50,8 +53,12 @@ size_t msgv3_message_buffer_bytes[2];
 int cur_msgv3_message_in_buffer = -1;
 pthread_mutex_t msg_lock;
 
-static char *NOTIFICATION__device_token = NULL;
 const char *tokenFile = "./token.txt";
+static char *NOTIFICATION__device_token = NULL;
+static const char *NOTIFICATION_GOTIFY_UP_PREFIX = "https://";
+pthread_t notification_thread;
+int notification_thread_stop = 1;
+int need_send_notification = 0;
 
 typedef enum CONTROL_PROXY_MESSAGE_TYPE {
     CONTROL_PROXY_MESSAGE_TYPE_FRIEND_PUBKEY_FOR_PROXY = 175,
@@ -152,6 +159,8 @@ struct Node2 {
 
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
+
+static void ping_push_service();
 
 void dbg(int level, const char *fmt, ...)
 {
@@ -483,15 +492,43 @@ static void self_connection_change_callback(Tox *tox, TOX_CONNECTION status, voi
     }
 }
 
+void bin2upHex(const uint8_t *bin, uint32_t bin_size, char *hex, uint32_t hex_size)
+{
+    sodium_bin2hex(hex, hex_size, bin, bin_size);
+
+    for (size_t i = 0; i < hex_size - 1; i++)
+    {
+        hex[i] = toupper(hex[i]);
+    }
+}
+
 static bool compare_m3_id(const uint8_t *id1, const uint8_t *id2)
 {
-    const int tox_public_key_hex_size = 32 * 2;
-    if (strncmp(id1, id2, tox_public_key_hex_size) == 0)
+    // -------------------
+    int length = 32;
+    int msg_hex_size = (length * 2) + 1;
+
+    char msg_hex[msg_hex_size + 1];
+    CLEAR(msg_hex);
+    bin2upHex((const uint8_t *)id1, length, msg_hex, msg_hex_size);
+
+    char msg_hex2[msg_hex_size + 1];
+    CLEAR(msg_hex2);
+    bin2upHex((const uint8_t *)id2, length, msg_hex2, msg_hex_size);
+
+    dbg(0, "m3:id1_hex=%s id2_hex=%s\n", msg_hex, msg_hex2);
+    // -------------------
+
+    const int tox_public_key_bin_size = 32;
+    int res = strncmp(id1, id2, tox_public_key_bin_size);
+    if (res == 0)
     {
+        dbg(0, "m3:*equal*\n");
         return true;
     }
     else
     {
+        dbg(0, "m3:NOT EQUAL\n");
         return false;
     }
 }
@@ -501,22 +538,25 @@ static void check_m3_id(int slot_num, const uint8_t *message)
     if (slot_num == 1)
     {
         int upper_found = 0;
-        if (compare_m3_id(message, msgv3_message_buffer[1]))
+        if (compare_m3_id(message, (msgv3_message_buffer[1] + (msgv3_message_buffer_bytes[1] - 4 - 32))))
         {
             free(msgv3_message_buffer[1]);
             msgv3_message_buffer[1] = NULL;
             cur_msgv3_message_in_buffer = 0;
             msgv3_message_buffer_bytes[1] = 0;
             upper_found = 1;
+            dbg(0, "incoming Message:check_m3_id:slot 1 id found!\n");
         }
 
-        if (compare_m3_id(message, msgv3_message_buffer[0]))
+        if (compare_m3_id(message, (msgv3_message_buffer[0] + (msgv3_message_buffer_bytes[0] - 4 - 32))))
         {
+            dbg(0, "incoming Message:check_m3_id:slot 0 id found!\n");
             free(msgv3_message_buffer[0]);
             msgv3_message_buffer[0] = NULL;
             msgv3_message_buffer_bytes[0] = 0;
             if (upper_found == 1)
             {
+                dbg(0, "incoming Message:check_m3_id:slot 0 id found:A\n");
                 cur_msgv3_message_in_buffer = -1;
             }
             else
@@ -525,17 +565,19 @@ static void check_m3_id(int slot_num, const uint8_t *message)
                 msgv3_message_buffer[0] = msgv3_message_buffer[1];
                 msgv3_message_buffer_bytes[0] = msgv3_message_buffer_bytes[1];                
                 cur_msgv3_message_in_buffer = 0;
+                dbg(0, "incoming Message:check_m3_id:slot 0 id found:B\n");
             }
         }
     }
     else if (slot_num == 0)
     {
-        if (compare_m3_id(message, msgv3_message_buffer[0]))
+        if (compare_m3_id(message, (msgv3_message_buffer[0] + (msgv3_message_buffer_bytes[0] - 4 - 32))))
         {
+            dbg(0, "incoming Message:check_m3_id:slot ZERO id found\n");
             free(msgv3_message_buffer[0]);
             msgv3_message_buffer[0] = NULL;
             cur_msgv3_message_in_buffer = -1;
-            msgv3_message_buffer_bytes = 0;
+            msgv3_message_buffer_bytes[0] = 0;
         }
     }
 }
@@ -543,8 +585,14 @@ static void check_m3_id(int slot_num, const uint8_t *message)
 static void friend_message_callback(Tox *tox, uint32_t friend_number, TOX_MESSAGE_TYPE type, const uint8_t *message, size_t length,
                        void *user_data)
 {
-    dbg(2, "Message: fnum=%d", friend_number);
-    
+    dbg(2, "incoming Message: type=%d fnum=%d\n", type, friend_number);
+
+    int msg_hex_size = (length * 2) + 1;
+    char msg_hex[msg_hex_size + 1];
+    CLEAR(msg_hex);
+    bin2upHex((const uint8_t *)message, length, msg_hex, msg_hex_size);
+    dbg(0, "incoming Message:msg_hex=%s\n", msg_hex);
+
     if (type == TOX_MESSAGE_TYPE_HIGH_LEVEL_ACK)
     {
         pthread_mutex_lock(&msg_lock);
@@ -552,11 +600,13 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number, TOX_MESSAG
         {
             if (cur_msgv3_message_in_buffer == 0)
             {
-                check_m3_id(0, message);
+                dbg(0, "incoming Message:check:slot 0\n");
+                check_m3_id(0, message + 3);
             }
             else if (cur_msgv3_message_in_buffer == 1)
             {
-                check_m3_id(1, message);
+                dbg(0, "incoming Message:check:slot 1 and 0\n");
+                check_m3_id(1, message + 3);
             }
         }
         pthread_mutex_unlock(&msg_lock);
@@ -575,10 +625,10 @@ static void friend_connection_status_callback(Tox *tox, uint32_t friend_number, 
             dbg(9, "[%d]:Lost connection to friend %d\n", num, friend_number);
             break;
         case TOX_CONNECTION_TCP:
-            // dbg(9, "[%d]:Connected to friend %d using TCP\n", num, friend_number);
+            dbg(9, "[%d]:Connected to friend %d using TCP\n", num, friend_number);
             break;
         case TOX_CONNECTION_UDP:
-            // dbg(9, "[%d]:Connected to friend %d using UDP\n", num, friend_number);
+            dbg(9, "[%d]:Connected to friend %d using UDP\n", num, friend_number);
             break;
     }
 
@@ -594,18 +644,19 @@ static void friend_request_callback(Tox *tox, const uint8_t *public_key, const u
     TOX_ERR_FRIEND_ADD err;
     tox_friend_add_norequest(tox, public_key, &err);
     dbg(9, "[%d]:accepting friend request. res=%d\n", num, err);
+    update_savedata_file(tox, 0);
 }
 
 static void friend_lossless_packet_cb(Tox *tox, uint32_t friend_number, const uint8_t *data, size_t length, void *user_data)
 {
-    dbg(9, "enter friend_lossless_packet_cb\n");
+    dbg(9, "enter friend_lossless_packet_cb:pktid=%d\n", data[0]);
 
     if (length == 0) {
         dbg(0, "received empty lossless package!\n");
         return;
     }
 
-    if (data[0] == CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN)
+    if (data[0] == CONTROL_PROXY_MESSAGE_TYPE_PUSH_URL_FOR_FRIEND)
     {
             dbg(0, "received CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN message\n");
             NOTIFICATION__device_token = calloc(1, (length + 1));
@@ -637,6 +688,13 @@ void m3(const char *message_text, int message_text_bytes, uint8_t *msgv3_out_bin
     int id_pos = message_text_bytes + 2;
     tox_messagev3_get_new_message_id(msgv3_out_bin + id_pos);
     // TODO: fill in unix timestamp
+
+    int length = message_text_bytes + 2 + 32 + 4;
+    int msg_hex_size = (length * 2) + 1;
+    char msg_hex[msg_hex_size + 1];
+    CLEAR(msg_hex);
+    bin2upHex((const uint8_t *)msgv3_out_bin, length, msg_hex, msg_hex_size);
+    dbg(0, "m3:msg_hex=%s\n", msg_hex);
 }
 
 
@@ -652,7 +710,7 @@ void *thread_shell_command(void *data)
     CLEAR(cmd);
 
     snprintf(cmd, sizeof(cmd),
-             "rsstail -i 3 -H -u %s -n 2 - </dev/null", rss_feed_url);
+             "rsstail -i 3 -H -u %s -n 2 - </dev/null 2>/dev/null", rss_feed_url);
 
     // Open an input pipe with the shell command
     FILE *pipein = popen(cmd, "r");
@@ -693,6 +751,8 @@ void *thread_shell_command(void *data)
             {
                 dbg(0, "str_buf FULL, overwriting slot 1\n");
                 m3(read_buffer, strlen(read_buffer), str_buf);
+                // free old message in slot 1
+                free(msgv3_message_buffer[1]);
                 msgv3_message_buffer[1] = str_buf;
                 cur_msgv3_message_in_buffer = 1;
                 msgv3_message_buffer_bytes[1] = strlen(read_buffer) + 2 + 32 + 4;
@@ -700,8 +760,8 @@ void *thread_shell_command(void *data)
             else
             {
                 dbg(0, "str_buf error!!\n");
+                free(str_buf);
             }
-            free(str_buf);
 
             pthread_mutex_unlock(&msg_lock);
 
@@ -709,6 +769,7 @@ void *thread_shell_command(void *data)
         else
         {
             // line was truncated
+            // dbg(0, "str_buf:line was truncated:LINE=%s\n", read_buffer);
         }
 
         yieldcpu(60 * 1000); // pause for 1 minute
@@ -726,6 +787,9 @@ void send_m3(int slot_num, Tox *tox)
                                 (const uint8_t *)msgv3_message_buffer[slot_num],
                                      msgv3_message_buffer_bytes[slot_num],
                                      &error);
+
+    ping_push_service();
+
 }
 
 static void print_stats(Tox *tox, int num)
@@ -733,6 +797,162 @@ static void print_stats(Tox *tox, int num)
     uint32_t num_friends = tox_self_get_friend_list_size(tox);
     dbg(9, "[%d]:tox num_friends:%d\n", num, num_friends);
 }
+
+
+
+
+
+
+
+
+
+
+struct string {
+    char *ptr;
+    size_t len;
+};
+
+static void init_string(struct string *s)
+{
+    s->len = 0;
+    s->ptr = calloc(1, s->len + 1);
+
+    if (s->ptr == NULL)
+    {
+        dbg(9, "malloc() failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    s->ptr[0] = '\0';
+}
+
+static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct string *s)
+{
+    size_t new_len = s->len + size*nmemb;
+    s->ptr = realloc(s->ptr, new_len+1);
+
+    if (s->ptr == NULL)
+    {
+        dbg(9, "realloc() failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    memcpy(s->ptr+s->len, ptr, size*nmemb);
+    s->ptr[new_len] = '\0';
+    s->len = new_len;
+
+    return size*nmemb;
+}
+
+static void ping_push_service()
+{
+    dbg(9, "ping_push_service\n");
+
+    if (!NOTIFICATION__device_token)
+    {
+        dbg(9, "ping_push_service: No NOTIFICATION__device_token\n");
+        return;
+    }
+
+    need_send_notification = 1;
+}
+
+/* TODO: CHECK */
+static void *notification_thread_func(void *data)
+{
+    while (notification_thread_stop == 0)
+    {
+        if (need_send_notification == 1)
+        {
+            if (!NOTIFICATION__device_token)
+            {
+                // no notification token
+            }
+            else
+            {
+                dbg(9, "ping_push_service:NOTIFICATION_METHOD GOTIFY_UP\n");
+                int result = 1;
+                CURL *curl = NULL;
+                CURLcode res = 0;
+
+                size_t max_buf_len = strlen(NOTIFICATION__device_token) + 1;
+
+                if (
+                    (max_buf_len <= strlen(NOTIFICATION_GOTIFY_UP_PREFIX))
+                    ||
+                    (strncmp(NOTIFICATION_GOTIFY_UP_PREFIX, NOTIFICATION__device_token, strlen(NOTIFICATION_GOTIFY_UP_PREFIX)) != 0)
+                   )
+                {
+                    // HINT: token does not start with "https://"
+                }
+                else
+                {
+                    char buf[max_buf_len + 1];
+                    memset(buf, 0, max_buf_len + 1);
+                    snprintf(buf, max_buf_len, "%s", NOTIFICATION__device_token);
+
+                    curl = curl_easy_init();
+
+                    if (curl)
+                    {
+                        struct string s;
+                        init_string(&s);
+
+                        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "ping=1");
+                        curl_easy_setopt(curl, CURLOPT_URL, buf);
+                        curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0");
+
+                        dbg(9, "request=%s\n", buf);
+
+                        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
+                        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+
+                        res = curl_easy_perform(curl);
+
+                        if (res != CURLE_OK)
+                        {
+                            dbg(9, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                        }
+                        else
+                        {
+                            long http_code = 0;
+                            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+                            if ((http_code < 300) && (http_code > 199))
+                            {
+                                dbg(9, "server_answer:OK:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
+                                result = 0;
+                            }
+                            else
+                            {
+                                dbg(9, "server_answer:ERROR:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
+                                result = 0; // do not retry, or the server may be spammed
+                            }
+                            free(s.ptr);
+                            s.ptr = NULL;
+                        }
+
+                        curl_easy_cleanup(curl);
+                    }
+
+                    if (result == 0)
+                    {
+                        dbg(9, "server_answer:need_send_notification -> reset\n");
+                        need_send_notification = 0;
+                    }
+                }
+            }
+        }
+        yieldcpu(500); // sleep 500 ms
+    }
+
+    dbg(2, "Notification:Clean thread exit!\n");
+    pthread_exit(0);
+}
+
+
+
+
+
 
 int main(void)
 {
@@ -765,6 +985,13 @@ int main(void)
     toxes[k] = tox_init(k);
     dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
 
+    const char *name = "Tox Command Ping";
+    tox_self_set_name(toxes[k], (uint8_t *) name, strlen(name), NULL);
+
+    const char *status_message = "Pings you on new output";
+    tox_self_set_status_message(toxes[k], (uint8_t *) status_message, strlen(status_message), NULL);
+
+
     uint8_t public_key_bin1[TOX_ADDRESS_SIZE];
     char    public_key_str1[TOX_ADDRESS_SIZE * 2];
     tox_self_get_address(toxes[k], public_key_bin1);
@@ -776,6 +1003,23 @@ int main(void)
 
     tox_iterate(toxes[k], &x);
 
+    print_stats(toxes[k], 1);
+
+
+    need_send_notification = 0;
+    notification_thread_stop = 0;
+
+    if (pthread_create(&notification_thread, NULL, notification_thread_func, (void *)NULL) != 0)
+    {
+        dbg(0, "Notification Thread create failed\n");
+    }
+    else
+    {
+        pthread_setname_np(notification_thread, "t_notif");
+        dbg(2, "Notification Thread successfully created\n");
+    }
+
+
     pthread_t tid[1];
     tox_shellcmd_thread_stop = 0;
     if (pthread_create(&(tid[0]), NULL, thread_shell_command, (void *)toxes[k]) != 0)
@@ -784,47 +1028,69 @@ int main(void)
     }
     else
     {
-        pthread_setname_np(tid[0], "t_a_read");
+        pthread_setname_np(tid[0], "t_shell");
         dbg(2, "shell command thread Thread successfully created\n");
     }
 
 
+    long send_msg_iters = 80000;
+    long send_msg_cur_iter = send_msg_iters - 10;
     long save_iters = 800000;
     long counter = save_iters - 10;
     while (1 == 1) {
         counter++;
+        send_msg_cur_iter++;
         tox_iterate(toxes[k], &x);
         if (counter >= save_iters)
         {
             update_savedata_file(toxes[k], k);
-            dbg(9, "[%d]:ID:1: saving data\n", k);
+            // dbg(9, "[%d]:ID:1: saving data\n", k);
         }
         if (counter >= save_iters)
         {
             counter = 0;
         }
 
-        pthread_mutex_lock(&msg_lock);
-        if (f_online != 0)
+        if (send_msg_cur_iter >= send_msg_iters)
         {
-            if (cur_msgv3_message_in_buffer != -1)
+            pthread_mutex_lock(&msg_lock);
+            if (f_online != 0)
             {
-                if (cur_msgv3_message_in_buffer == 0)
+                if (cur_msgv3_message_in_buffer != -1)
                 {
-                    send_m3(0, toxes[k]);
-                }
-                else if (cur_msgv3_message_in_buffer == 1)
-                {
-                    send_m3(1, toxes[k]);
+                    if (cur_msgv3_message_in_buffer == 0)
+                    {
+                        dbg(9, "send_m3 slot 0\n");
+                        send_m3(0, toxes[k]);
+                    }
+                    else if (cur_msgv3_message_in_buffer == 1)
+                    {
+                        dbg(9, "send_m3 slot 1\n");
+                        send_m3(1, toxes[k]);
+                    }
                 }
             }
+            else
+            {
+                if (cur_msgv3_message_in_buffer != -1)
+                {
+                    dbg(9, "ping_push_service -> (%d >= %d)\n", send_msg_cur_iter, send_msg_iters);
+                    ping_push_service();
+                }
+            }
+            pthread_mutex_unlock(&msg_lock);
+            send_msg_cur_iter = 0;
         }
-        pthread_mutex_unlock(&msg_lock);
 
         usleep(tox_iteration_interval(toxes[0]));
     }
 
     tox_shellcmd_thread_stop = 1;
+    pthread_join(tid[0], NULL);
+
+    notification_thread_stop = 1;
+    pthread_join(notification_thread, NULL);
+
     tox_kill(toxes[k]);
 
     fclose(logfile);
