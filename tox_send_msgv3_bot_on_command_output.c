@@ -41,6 +41,8 @@
 const char *log_filename = "output.log";
 FILE *logfile = NULL;
 
+const char *shell_command = "rsstail -p -P -i 3 -H -u https://github.com/openwrt/openwrt/releases.atom -n 2 -";
+
 #define SPINS_UP_NUM 10
 int spin = SPINS_UP_NUM;
 uint8_t x = 1;
@@ -703,14 +705,11 @@ void *thread_shell_command(void *data)
     Tox *t = (Tox*) data;
     pthread_t id = pthread_self();
 
-    const char *rss_feed_url = "https://github.com/openwrt/openwrt/releases.atom";
-
     int read_bytes = 0;
     char cmd[1000];
     CLEAR(cmd);
 
-    snprintf(cmd, sizeof(cmd),
-             "rsstail -i 3 -H -u %s -n 2 - </dev/null 2>/dev/null", rss_feed_url);
+    snprintf(cmd, sizeof(cmd), "%s </dev/null 2>/dev/null", shell_command);
 
     // Open an input pipe with the shell command
     FILE *pipein = popen(cmd, "r");
