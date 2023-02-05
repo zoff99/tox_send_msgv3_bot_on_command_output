@@ -500,6 +500,33 @@ static void check_m3_id(int slot_num, const uint8_t *message)
 {
     if (slot_num == 1)
     {
+        int upper_found = 0;
+        if (compare_m3_id(message, msgv3_message_buffer[1]))
+        {
+            free(msgv3_message_buffer[1]);
+            msgv3_message_buffer[1] = NULL;
+            cur_msgv3_message_in_buffer = 0;
+            msgv3_message_buffer_bytes[1] = 0;
+            upper_found = 1;
+        }
+
+        if (compare_m3_id(message, msgv3_message_buffer[0]))
+        {
+            free(msgv3_message_buffer[0]);
+            msgv3_message_buffer[0] = NULL;
+            msgv3_message_buffer_bytes[0] = 0;
+            if (upper_found == 1)
+            {
+                cur_msgv3_message_in_buffer = -1;
+            }
+            else
+            {
+                // move upper entry to lower entry
+                msgv3_message_buffer[0] = msgv3_message_buffer[1];
+                msgv3_message_buffer_bytes[0] = msgv3_message_buffer_bytes[1];                
+                cur_msgv3_message_in_buffer = 0;
+            }
+        }
     }
     else if (slot_num == 0)
     {
@@ -508,6 +535,7 @@ static void check_m3_id(int slot_num, const uint8_t *message)
             free(msgv3_message_buffer[0]);
             msgv3_message_buffer[0] = NULL;
             cur_msgv3_message_in_buffer = -1;
+            msgv3_message_buffer_bytes = 0;
         }
     }
 }
@@ -529,7 +557,6 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number, TOX_MESSAG
             else if (cur_msgv3_message_in_buffer == 1)
             {
                 check_m3_id(1, message);
-                check_m3_id(0, message);
             }
         }
         pthread_mutex_unlock(&msg_lock);
