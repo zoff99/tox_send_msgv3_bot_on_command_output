@@ -703,15 +703,38 @@ static void set_cb(Tox *tox1)
 }
 
 
+static size_t xnet_pack_u16(uint8_t *bytes, uint16_t v)
+{
+    bytes[0] = (v >> 8) & 0xff;
+    bytes[1] = v & 0xff;
+    return sizeof(v);
+}
 
-void m3(const char *message_text, int message_text_bytes, uint8_t *msgv3_out_bin)
+static size_t xnet_pack_u32(uint8_t *bytes, uint32_t v)
+{
+    uint8_t *p = bytes;
+    p += xnet_pack_u16(p, (v >> 16) & 0xffff);
+    p += xnet_pack_u16(p, v & 0xffff);
+    return p - bytes;
+}
+
+static time_t get_unix_time(void)
+{
+    return time(NULL);
+}
+
+static void m3(const char *message_text, int message_text_bytes, uint8_t *msgv3_out_bin)
 {
     memcpy(msgv3_out_bin, message_text, message_text_bytes);
     msgv3_out_bin[message_text_bytes] = 0;
     msgv3_out_bin[message_text_bytes + 1] = 0;
     int id_pos = message_text_bytes + 2;
     tox_messagev3_get_new_message_id(msgv3_out_bin + id_pos);
-    // TODO: fill in unix timestamp
+
+    uint32_t timestamp_unix = (uint32_t)get_unix_time();
+    uint32_t timestamp_unix_buf = 0;
+    xnet_pack_u32((uint8_t *)&timestamp_unix_buf, timestamp_unix);
+    memcpy(msgv3_out_bin + (id_pos + 32), &timestamp_unix_buf, (size_t)(TOX_MSGV3_TIMESTAMP_LENGTH));
 
     int length = message_text_bytes + 2 + 32 + 4;
     int msg_hex_size = (length * 2) + 1;
@@ -881,7 +904,6 @@ static void ping_push_service()
     need_send_notification = 1;
 }
 
-/* TODO: CHECK */
 static void *notification_thread_func(void *data)
 {
     while (notification_thread_stop == 0)
@@ -1021,6 +1043,7 @@ int main(void)
 
     read_token_from_file();
 
+    uint32_t last_send_msg_timestamp_unix = 0;
     uint8_t k = 0;
     toxes[k] = tox_init(k);
     dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
@@ -1115,15 +1138,29 @@ int main(void)
             {
                 if (cur_msgv3_message_in_buffer != -1)
                 {
-                    if (cur_msgv3_message_in_buffer == 0)
+                    // HINT: send only every 2 s, to perserve message ordering my timestamp upto the seconds
+                    if ((uint32_t)get_unix_time() > (last_send_msg_timestamp_unix + 1))
                     {
-                        dbg(9, "send_m3 slot 0\n");
-                        send_m3(0, toxes[k]);
+                        dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
+                        if ((cur_msgv3_message_in_buffer == 0) || (cur_msgv3_message_in_buffer == 1))
+                        {
+                            dbg(9, "send_m3 slot 0\n");
+                            send_m3(0, toxes[k]);
+                            last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
+                        }
+                        else
+                        {
+                            if (cur_msgv3_message_in_buffer == 1)
+                            {
+                                dbg(9, "send_m3 slot 1\n");
+                                send_m3(1, toxes[k]);
+                                last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
+                            }
+                        }
                     }
-                    else if (cur_msgv3_message_in_buffer == 1)
+                    else
                     {
-                        dbg(9, "send_m3 slot 1\n");
-                        send_m3(1, toxes[k]);
+                        dbg(9, "send_m3:pause for 1 second\n");
                     }
                 }
             }
