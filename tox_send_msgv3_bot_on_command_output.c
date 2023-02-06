@@ -1,4 +1,21 @@
-
+/**
+ * [tox send msgv3 bot]
+ * Copyright (C) 2023 Zoff <zoff@zoff.cc>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ * Boston, MA  02110-1301, USA.
+ */
 
 #define _GNU_SOURCE
 
@@ -38,17 +55,18 @@
 #include <curl/curl.h>
 
 #define CURRENT_LOG_LEVEL 9 // 0 -> error, 1 -> warn, 2 -> info, 9 -> debug
-const char *log_filename = "output.log";
 FILE *logfile = NULL;
 
-const char *shell_command = "rsstail -p -P -i 3 -H -u https://github.com/openwrt/openwrt/releases.atom -n 2 -";
+// const char *shell_command = "rsstail -p -P -i 3 -H -u https://github.com/openwrt/openwrt/releases.atom -n 2 -";
+const char *shell_command = "./command.sh";
 
-#define SPINS_UP_NUM 10
+#define SPINS_UP_NUM 1
 int spin = SPINS_UP_NUM;
 uint8_t x = 1;
 struct Tox* toxes[SPINS_UP_NUM];
 int tox_shellcmd_thread_stop = 0;
-int f_online = 0;
+int f_online = TOX_CONNECTION_NONE;
+int self_online = TOX_CONNECTION_NONE;
 
 char *msgv3_message_buffer[2];
 size_t msgv3_message_buffer_bytes[2];
@@ -61,6 +79,8 @@ static const char *NOTIFICATION_GOTIFY_UP_PREFIX = "https://";
 pthread_t notification_thread;
 int notification_thread_stop = 1;
 int need_send_notification = 0;
+#define SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX 50
+int send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
 
 typedef enum CONTROL_PROXY_MESSAGE_TYPE {
     CONTROL_PROXY_MESSAGE_TYPE_FRIEND_PUBKEY_FOR_PROXY = 175,
@@ -492,6 +512,8 @@ static void self_connection_change_callback(Tox *tox, TOX_CONNECTION status, voi
             dbg(9, "[%d]:Connected using UDP.\n", num);
             break;
     }
+
+    self_online = status;
 }
 
 void bin2upHex(const uint8_t *bin, uint32_t bin_size, char *hex, uint32_t hex_size)
@@ -711,7 +733,7 @@ void *thread_shell_command(void *data)
 
     snprintf(cmd, sizeof(cmd), "%s </dev/null 2>/dev/null", shell_command);
 
-    // Open an input pipe with the shell command
+    // Open a pipe with the shell command
     FILE *pipein = popen(cmd, "r");
 
     int read_buffer_size = 50000;
@@ -737,6 +759,8 @@ void *thread_shell_command(void *data)
                 msgv3_message_buffer[0] = str_buf;
                 cur_msgv3_message_in_buffer = 0;
                 msgv3_message_buffer_bytes[0] = strlen(read_buffer) + 2 + 32 + 4;
+                send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+                dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
             }
             else if (cur_msgv3_message_in_buffer == 0)
             {
@@ -745,6 +769,8 @@ void *thread_shell_command(void *data)
                 msgv3_message_buffer[1] = str_buf;
                 cur_msgv3_message_in_buffer = 1;
                 msgv3_message_buffer_bytes[1] = strlen(read_buffer) + 2 + 32 + 4;
+                send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+                dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
             }
             else if (cur_msgv3_message_in_buffer == 1)
             {
@@ -755,6 +781,8 @@ void *thread_shell_command(void *data)
                 msgv3_message_buffer[1] = str_buf;
                 cur_msgv3_message_in_buffer = 1;
                 msgv3_message_buffer_bytes[1] = strlen(read_buffer) + 2 + 32 + 4;
+                send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+                dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
             }
             else
             {
@@ -763,7 +791,6 @@ void *thread_shell_command(void *data)
             }
 
             pthread_mutex_unlock(&msg_lock);
-
         }
         else
         {
@@ -771,7 +798,7 @@ void *thread_shell_command(void *data)
             // dbg(0, "str_buf:line was truncated:LINE=%s\n", read_buffer);
         }
 
-        yieldcpu(60 * 1000); // pause for 1 minute
+        yieldcpu(100); // pause for x ms
     }
 
     free(read_buffer);
@@ -786,9 +813,7 @@ void send_m3(int slot_num, Tox *tox)
                                 (const uint8_t *)msgv3_message_buffer[slot_num],
                                      msgv3_message_buffer_bytes[slot_num],
                                      &error);
-
     ping_push_service();
-
 }
 
 static void print_stats(Tox *tox, int num)
@@ -886,57 +911,73 @@ static void *notification_thread_func(void *data)
                 }
                 else
                 {
-                    char buf[max_buf_len + 1];
-                    memset(buf, 0, max_buf_len + 1);
-                    snprintf(buf, max_buf_len, "%s", NOTIFICATION__device_token);
-
-                    curl = curl_easy_init();
-
-                    if (curl)
+                    if (send_notification_counter >= 0)
                     {
-                        struct string s;
-                        init_string(&s);
+                        char buf[max_buf_len + 1];
+                        memset(buf, 0, max_buf_len + 1);
+                        snprintf(buf, max_buf_len, "%s", NOTIFICATION__device_token);
 
-                        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "ping=1");
-                        curl_easy_setopt(curl, CURLOPT_URL, buf);
-                        curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0");
+                        curl = curl_easy_init();
 
-                        dbg(9, "request=%s\n", buf);
-
-                        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
-                        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
-
-                        res = curl_easy_perform(curl);
-
-                        if (res != CURLE_OK)
+                        if (curl)
                         {
-                            dbg(9, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-                        }
-                        else
-                        {
-                            long http_code = 0;
-                            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-                            if ((http_code < 300) && (http_code > 199))
+                            struct string s;
+                            init_string(&s);
+
+                            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "ping=1");
+                            curl_easy_setopt(curl, CURLOPT_URL, buf);
+                            curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0");
+
+                            dbg(9, "request=%s\n", buf);
+
+                            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
+                            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+
+                            res = curl_easy_perform(curl);
+
+                            if (res != CURLE_OK)
                             {
-                                dbg(9, "server_answer:OK:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
-                                result = 0;
+                                dbg(9, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
                             }
                             else
                             {
-                                dbg(9, "server_answer:ERROR:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
-                                result = 0; // do not retry, or the server may be spammed
+                                long http_code = 0;
+                                curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+                                if ((http_code < 300) && (http_code > 199))
+                                {
+                                    dbg(9, "server_answer:OK:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
+                                    result = 0;
+                                }
+                                else
+                                {
+                                    dbg(9, "server_answer:ERROR:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
+                                    result = 0; // do not retry, or the server may be spammed
+                                }
+                                free(s.ptr);
+                                s.ptr = NULL;
                             }
-                            free(s.ptr);
-                            s.ptr = NULL;
-                        }
 
-                        curl_easy_cleanup(curl);
+                            curl_easy_cleanup(curl);
+                        }
+                    }
+                    else
+                    {
+                        // dbg(9, "server_answer:NO send:send_notification_counter = %d\n", send_notification_counter);
                     }
 
                     if (result == 0)
                     {
                         dbg(9, "server_answer:need_send_notification -> reset\n");
                         need_send_notification = 0;
+
+                        pthread_mutex_lock(&msg_lock);
+                        send_notification_counter--;
+                        if (send_notification_counter < 0)
+                        {
+                            send_notification_counter = 0;
+                        }
+                        dbg(9, "server_answer:send_notification_counter=%d\n", send_notification_counter);
+                        pthread_mutex_unlock(&msg_lock);
                     }
                 }
             }
@@ -956,7 +997,6 @@ static void *notification_thread_func(void *data)
 int main(void)
 {
     logfile = stdout;
-    // logfile = fopen(log_filename, "wb");
     setvbuf(logfile, NULL, _IOLBF, 0);
 
 	if (pthread_mutex_init(&msg_lock, NULL) != 0)
@@ -968,7 +1008,8 @@ int main(void)
 		dbg(2, "msg_lock created successfully\n");
 	}
 
-    f_online = 0;
+    f_online = TOX_CONNECTION_NONE;
+    self_online = TOX_CONNECTION_NONE;
 
     cur_msgv3_message_in_buffer = -1;
     msgv3_message_buffer[0] = NULL;
@@ -1006,6 +1047,7 @@ int main(void)
 
 
     need_send_notification = 0;
+    send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
     notification_thread_stop = 0;
 
     if (pthread_create(&notification_thread, NULL, notification_thread_func, (void *)NULL) != 0)
@@ -1034,12 +1076,28 @@ int main(void)
 
     long send_msg_iters = 80000;
     long send_msg_cur_iter = send_msg_iters - 10;
+
     long save_iters = 800000;
     long counter = save_iters - 10;
+
+    long bootstrap_iters = 30000;
+    long bootstrap_counter = 0;
+
     while (1 == 1) {
         counter++;
         send_msg_cur_iter++;
         tox_iterate(toxes[k], &x);
+
+        if (self_online == TOX_CONNECTION_NONE)
+        {
+            bootstrap_counter++;
+            if (bootstrap_counter >= bootstrap_iters)
+            {
+                tox_connect(toxes[k], 1);
+                bootstrap_counter = 0;
+            }
+        }
+
         if (counter >= save_iters)
         {
             update_savedata_file(toxes[k], k);
@@ -1053,7 +1111,7 @@ int main(void)
         if (send_msg_cur_iter >= send_msg_iters)
         {
             pthread_mutex_lock(&msg_lock);
-            if (f_online != 0)
+            if (f_online != TOX_CONNECTION_NONE)
             {
                 if (cur_msgv3_message_in_buffer != -1)
                 {
