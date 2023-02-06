@@ -6,7 +6,7 @@ RUN cd /workspace/build/ ; mkdir -p /workspace/build/inst_ct; rm -Rf ./c-toxcore
 RUN git clone https://github.com/zoff99/c-toxcore
 RUN cd c-toxcore/ && \
 export _INST_="/workspace/build/inst_ct" && \
-export CFLAGS=" -DMIN_LOGGER_LEVEL=LOGGER_LEVEL_INFO -D_GNU_SOURCE -g -O2 -I$_INST_/include/ -fPIC -Wall -Wextra -Wno-unused-function -fno-omit-frame-pointer -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable " && \
+export CFLAGS=" -DMIN_LOGGER_LEVEL=LOGGER_LEVEL_INFO -D_GNU_SOURCE -g -O2 -I$_INST_/include/ -fPIC -Wall -Wextra -fstack-protector-all -Wno-unused-function -fno-omit-frame-pointer -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable " && \
 export LDFLAGS=" -O2 -L$_INST_/lib -fPIC " && \
 ./autogen.sh && \
 ./configure \
