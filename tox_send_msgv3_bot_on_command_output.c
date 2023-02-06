@@ -1150,12 +1150,7 @@ int main(void)
                         }
                         else
                         {
-                            if (cur_msgv3_message_in_buffer == 1)
-                            {
-                                dbg(9, "send_m3 slot 1\n");
-                                send_m3(1, toxes[k]);
-                                last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
-                            }
+                            dbg(9, "send_m3:should never get here!\n");
                         }
                     }
                     else
