@@ -2,7 +2,7 @@
 FROM debian:9
 
 RUN export DEBIAN_FRONTEND=noninteractive ; apt update && apt install -y make     curl   wget    git    coreutils    autoconf    libtool    pkg-config    libsodium-dev     nano    vim
-RUN cd /workspace/build/ ; mkdir -p /workspace/build/inst_ct; rm -Rf ./c-toxcore/
+RUN mkdir -p /workspace/build/inst_ct ; cd /workspace/build/ rm -Rf ./c-toxcore/
 RUN git clone https://github.com/zoff99/c-toxcore
 RUN cd c-toxcore/ && \
 export _INST_="/workspace/build/inst_ct" && \
