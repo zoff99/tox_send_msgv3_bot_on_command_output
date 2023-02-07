@@ -33,6 +33,10 @@ for system_to_build_for in $build_for ; do
     ls -al $_HOME_/"$system_to_build_for"/
 
     rsync -a ./tox_send_msgv3_bot_on_command_output.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
+    rsync -a ./list.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
+    rsync -a ./list_iterator.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
+    rsync -a ./list_node.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
+    rsync -a ./list.h --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
     chmod a+rwx -R $_HOME_/"$system_to_build_for"/workspace/build >/dev/null 2>/dev/null
 
     echo '#! /bin/bash
@@ -59,6 +63,7 @@ ls -al /workspace/build/inst_ct/lib/
 gcc -O2 -g -fPIC -I/workspace/build/inst_ct/include \
     -L/workspace/build/inst_ct/lib \
     tox_send_msgv3_bot_on_command_output.c \
+    list.c list_iterator.c list_node.c \
     /workspace/build/inst_ct/lib/libtoxcore.a \
     /workspace/build/inst_ct/lib/libtoxencryptsave.a \
     -l:libsodium.a \

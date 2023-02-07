@@ -49,6 +49,8 @@
 #include <signal.h>
 #include <linux/sched.h>
 
+#include "list.h"
+
 #include <sodium/utils.h>
 
 #include <tox/tox.h>
@@ -68,11 +70,6 @@ int tox_shellcmd_thread_stop = 0;
 int f_online = TOX_CONNECTION_NONE;
 int self_online = TOX_CONNECTION_NONE;
 
-char *msgv3_message_buffer[2];
-size_t msgv3_message_buffer_bytes[2];
-int cur_msgv3_message_in_buffer = -1;
-pthread_mutex_t msg_lock;
-
 const char *tokenFile = "./token.txt";
 static char *NOTIFICATION__device_token = NULL;
 static const char *NOTIFICATION_GOTIFY_UP_PREFIX = "https://";
@@ -81,6 +78,16 @@ int notification_thread_stop = 1;
 int need_send_notification = 0;
 #define SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX 50
 int send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+const int read_buffer_size = 50000;
+
+struct stringlist {
+    char *s; // free this one
+    char *msgv3_id; // DO NOT free this one, since it points into "s" above
+    size_t bytes;
+};
+list_t *list = NULL;
+#define MAX_STRINGLIST_ENTRIES 50
+pthread_mutex_t msg_lock;
 
 typedef enum CONTROL_PROXY_MESSAGE_TYPE {
     CONTROL_PROXY_MESSAGE_TYPE_FRIEND_PUBKEY_FOR_PROXY = 175,
@@ -284,6 +291,24 @@ void tox_log_cb__custom2(Tox *tox, TOX_LOG_LEVEL level, const char *file, uint32
                         const char *message, void *user_data)
 {
     dbg(9, "C-TOXCORE:2:%d:%s:%d:%s:%s\n", (int)level, file, (int)line, func, message);
+}
+
+static uint32_t list_items()
+{
+    if (!list)
+    {
+        return 0;
+    }
+
+    uint32_t count = 0;
+    list_node_t *nodex;
+    list_iterator_t *it = list_iterator_new(list, LIST_HEAD);
+    while ((nodex = list_iterator_next(it)))
+    {
+        count++;
+    }
+    list_iterator_destroy(it);
+    return count;
 }
 
 static void hex_string_to_bin2(const char *hex_string, uint8_t *output) {
@@ -557,51 +582,16 @@ static bool compare_m3_id(const uint8_t *id1, const uint8_t *id2)
     }
 }
 
-static void check_m3_id(int slot_num, const uint8_t *message)
+static void check_m3_id(const uint8_t *message)
 {
-    if (slot_num == 1)
+    list_node_t *node = list_at(list, 0);
+    if (node)
     {
-        int upper_found = 0;
-        if (compare_m3_id(message, (msgv3_message_buffer[1] + (msgv3_message_buffer_bytes[1] - 4 - 32))))
-        {
-            free(msgv3_message_buffer[1]);
-            msgv3_message_buffer[1] = NULL;
-            cur_msgv3_message_in_buffer = 0;
-            msgv3_message_buffer_bytes[1] = 0;
-            upper_found = 1;
-            dbg(0, "incoming Message:check_m3_id:slot 1 id found!\n");
-        }
-
-        if (compare_m3_id(message, (msgv3_message_buffer[0] + (msgv3_message_buffer_bytes[0] - 4 - 32))))
-        {
-            dbg(0, "incoming Message:check_m3_id:slot 0 id found!\n");
-            free(msgv3_message_buffer[0]);
-            msgv3_message_buffer[0] = NULL;
-            msgv3_message_buffer_bytes[0] = 0;
-            if (upper_found == 1)
-            {
-                dbg(0, "incoming Message:check_m3_id:slot 0 id found:A\n");
-                cur_msgv3_message_in_buffer = -1;
-            }
-            else
-            {
-                // move upper entry to lower entry
-                msgv3_message_buffer[0] = msgv3_message_buffer[1];
-                msgv3_message_buffer_bytes[0] = msgv3_message_buffer_bytes[1];                
-                cur_msgv3_message_in_buffer = 0;
-                dbg(0, "incoming Message:check_m3_id:slot 0 id found:B\n");
-            }
-        }
-    }
-    else if (slot_num == 0)
-    {
-        if (compare_m3_id(message, (msgv3_message_buffer[0] + (msgv3_message_buffer_bytes[0] - 4 - 32))))
+        if (compare_m3_id(message, ((struct stringlist*)(node->val))->msgv3_id))
         {
             dbg(0, "incoming Message:check_m3_id:slot ZERO id found\n");
-            free(msgv3_message_buffer[0]);
-            msgv3_message_buffer[0] = NULL;
-            cur_msgv3_message_in_buffer = -1;
-            msgv3_message_buffer_bytes[0] = 0;
+            free(((struct stringlist*)(node->val))->s);
+            list_remove(list, node);
         }
     }
 }
@@ -620,20 +610,44 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number, TOX_MESSAG
     if (type == TOX_MESSAGE_TYPE_HIGH_LEVEL_ACK)
     {
         pthread_mutex_lock(&msg_lock);
-        if (cur_msgv3_message_in_buffer != -1)
+        if (list_items() > 0)
         {
-            if (cur_msgv3_message_in_buffer == 0)
-            {
-                dbg(0, "incoming Message:check:slot 0\n");
-                check_m3_id(0, message + 3);
-            }
-            else if (cur_msgv3_message_in_buffer == 1)
-            {
-                dbg(0, "incoming Message:check:slot 1 and 0\n");
-                check_m3_id(1, message + 3);
-            }
+            dbg(0, "incoming Message:check:slot 0\n");
+            check_m3_id(message + 3);
         }
         pthread_mutex_unlock(&msg_lock);
+    }
+    else
+    {
+        // HINT: check if this is a msgV3 message and then send an ACK back
+        if ((message) && (length > (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD)))
+        {
+            dbg(0, "incoming Message:check:1:msgv3\n");
+            int pos = length - (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD);
+
+            // check for guard
+            uint8_t g1 = *(message + pos);
+            uint8_t g2 = *(message + pos + 1);
+
+            // check for the msgv3 guard
+            if ((g1 == 0) && (g2 == 0))
+            {
+                dbg(0, "incoming Message:check:2:msgv3\n");
+                size_t msgv3_ack_length = 1 + 2 + 32 + 4;
+                uint8_t *msgv3_ack_buffer = (uint8_t *)calloc(1, msgv3_ack_length + 1);
+                if (msgv3_ack_buffer)
+                {
+                    uint8_t *p = msgv3_ack_buffer;
+                    memcpy(p, "_", 1);
+                    p = p + 1;
+                    p = p + 2;
+                    memcpy(p, (message + 3), TOX_MSGV3_MSGID_LENGTH);
+                    uint32_t res = tox_friend_send_message(tox, friend_number, TOX_MESSAGE_TYPE_HIGH_LEVEL_ACK, msgv3_ack_buffer, msgv3_ack_length, NULL);
+                    dbg(0, "incoming Message:msgv3:send ACK:res=%d\n", res);
+                    free(msgv3_ack_buffer);
+                }
+            }
+        }
     }
 }
 
@@ -723,8 +737,15 @@ static time_t get_unix_time(void)
     return time(NULL);
 }
 
-static void m3(const char *message_text, int message_text_bytes, uint8_t *msgv3_out_bin)
+static void m3(const char *message_text, int message_text_bytes)
 {
+    uint8_t *msgv3_out_bin = calloc(1, read_buffer_size + 1);
+    if (!msgv3_out_bin)
+    {
+        dbg(0, "m3:error allocating memory\n");
+        return;
+    }
+
     memcpy(msgv3_out_bin, message_text, message_text_bytes);
     msgv3_out_bin[message_text_bytes] = 0;
     msgv3_out_bin[message_text_bytes + 1] = 0;
@@ -742,6 +763,20 @@ static void m3(const char *message_text, int message_text_bytes, uint8_t *msgv3_
     CLEAR(msg_hex);
     bin2upHex((const uint8_t *)msgv3_out_bin, length, msg_hex, msg_hex_size);
     dbg(0, "m3:msg_hex=%s\n", msg_hex);
+
+    struct stringlist* item = calloc(1, sizeof(struct stringlist));
+    if (item)
+    {
+        item->s = msgv3_out_bin;
+        item->msgv3_id = msgv3_out_bin + id_pos;
+        item->bytes = message_text_bytes + 2 + 32 + 4;
+        list_node_t *node = list_node_new(item);
+        list_rpush(list, node);
+    }
+    else
+    {
+        dbg(0, "m3:error allocating memory for list item\n");
+    }
 }
 
 
@@ -759,7 +794,6 @@ void *thread_shell_command(void *data)
     // Open a pipe with the shell command
     FILE *pipein = popen(cmd, "r");
 
-    int read_buffer_size = 50000;
     int8_t *read_buffer = calloc(1, read_buffer_size + 1);
     while (tox_shellcmd_thread_stop != 1)
     {
@@ -773,44 +807,16 @@ void *thread_shell_command(void *data)
 
             pthread_mutex_lock(&msg_lock);
 
-            int8_t *str_buf = calloc(1, read_buffer_size + 1);
-
-            if (cur_msgv3_message_in_buffer == -1)
+            if (list_items() < MAX_STRINGLIST_ENTRIES)
             {
-                dbg(0, "using slot 0\n");
-                m3(read_buffer, strlen(read_buffer), str_buf);
-                msgv3_message_buffer[0] = str_buf;
-                cur_msgv3_message_in_buffer = 0;
-                msgv3_message_buffer_bytes[0] = strlen(read_buffer) + 2 + 32 + 4;
-                send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
-                dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
-            }
-            else if (cur_msgv3_message_in_buffer == 0)
-            {
-                dbg(0, "using slot 1\n");
-                m3(read_buffer, strlen(read_buffer), str_buf);
-                msgv3_message_buffer[1] = str_buf;
-                cur_msgv3_message_in_buffer = 1;
-                msgv3_message_buffer_bytes[1] = strlen(read_buffer) + 2 + 32 + 4;
-                send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
-                dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
-            }
-            else if (cur_msgv3_message_in_buffer == 1)
-            {
-                dbg(0, "str_buf FULL, overwriting slot 1\n");
-                m3(read_buffer, strlen(read_buffer), str_buf);
-                // free old message in slot 1
-                free(msgv3_message_buffer[1]);
-                msgv3_message_buffer[1] = str_buf;
-                cur_msgv3_message_in_buffer = 1;
-                msgv3_message_buffer_bytes[1] = strlen(read_buffer) + 2 + 32 + 4;
+                dbg(0, "adding string to buffer\n");
+                m3(read_buffer, strlen(read_buffer));
                 send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
                 dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
             }
             else
             {
-                dbg(0, "str_buf error!!\n");
-                free(str_buf);
+                dbg(0, "string buffer full, dropping string\n");
             }
 
             pthread_mutex_unlock(&msg_lock);
@@ -831,12 +837,17 @@ void *thread_shell_command(void *data)
 
 void send_m3(int slot_num, Tox *tox)
 {
-    Tox_Err_Friend_Send_Message error;
-    tox_friend_send_message(tox, 0, TOX_MESSAGE_TYPE_NORMAL,
-                                (const uint8_t *)msgv3_message_buffer[slot_num],
-                                     msgv3_message_buffer_bytes[slot_num],
-                                     &error);
-    ping_push_service();
+    list_node_t *node = list_at(list, 0);
+    if (node)
+    {
+        struct stringlist* sl = (struct stringlist*)(node->val);
+        Tox_Err_Friend_Send_Message error;
+        tox_friend_send_message(tox, 0, TOX_MESSAGE_TYPE_NORMAL,
+                                    (const uint8_t *)sl->s,
+                                         sl->bytes,
+                                         &error);
+        ping_push_service();
+    }
 }
 
 static void print_stats(Tox *tox, int num)
@@ -1020,6 +1031,7 @@ int main(void)
 {
     logfile = stdout;
     setvbuf(logfile, NULL, _IOLBF, 0);
+    dbg(9, "--start--\n");
 
 	if (pthread_mutex_init(&msg_lock, NULL) != 0)
 	{
@@ -1033,15 +1045,9 @@ int main(void)
     f_online = TOX_CONNECTION_NONE;
     self_online = TOX_CONNECTION_NONE;
 
-    cur_msgv3_message_in_buffer = -1;
-    msgv3_message_buffer[0] = NULL;
-    msgv3_message_buffer_bytes[0] = 0;
-    msgv3_message_buffer[1] = NULL;
-    msgv3_message_buffer_bytes[1] = 0;
-
-    dbg(9, "--start--\n");
-
     read_token_from_file();
+
+    list = list_new();
 
     uint32_t last_send_msg_timestamp_unix = 0;
     uint8_t k = 0;
@@ -1136,22 +1142,15 @@ int main(void)
             pthread_mutex_lock(&msg_lock);
             if (f_online != TOX_CONNECTION_NONE)
             {
-                if (cur_msgv3_message_in_buffer != -1)
+                if (list_items() > 0)
                 {
                     // HINT: send only every 2 s, to perserve message ordering my timestamp upto the seconds
                     if ((uint32_t)get_unix_time() > (last_send_msg_timestamp_unix + 1))
                     {
                         dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
-                        if ((cur_msgv3_message_in_buffer == 0) || (cur_msgv3_message_in_buffer == 1))
-                        {
-                            dbg(9, "send_m3 slot 0\n");
-                            send_m3(0, toxes[k]);
-                            last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
-                        }
-                        else
-                        {
-                            dbg(9, "send_m3:should never get here!\n");
-                        }
+                        dbg(9, "send_m3 slot 0\n");
+                        send_m3(0, toxes[k]);
+                        last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
                     }
                     else
                     {
@@ -1161,7 +1160,7 @@ int main(void)
             }
             else
             {
-                if (cur_msgv3_message_in_buffer != -1)
+                if (list_items() > 0)
                 {
                     dbg(9, "ping_push_service -> (%d >= %d)\n", send_msg_cur_iter, send_msg_iters);
                     ping_push_service();
@@ -1181,6 +1180,8 @@ int main(void)
     pthread_join(notification_thread, NULL);
 
     tox_kill(toxes[k]);
+
+    list_destroy(list);
 
     fclose(logfile);
 
