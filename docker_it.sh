@@ -8,6 +8,9 @@ export _HOME_
 echo $_HOME_
 cd $_HOME_
 
+build_for='
+debian:9
+'
 
 if [ "$1""x" == "buildx" ]; then
     docker build -t toxcore_ready_deb9_003 .
@@ -52,6 +55,8 @@ version__=$(cat /etc/os-release 2>/dev/null|grep "^VERSION_ID=" 2>/dev/null|cut 
 echo "# compiling on: $system__ $version__"
 
 #------------------------
+
+cp -a /workspace2/build/* /workspace/build/
 
 export PKG_CONFIG_PATH=/workspace/build/inst_ct/lib/pkgconfig/
 
