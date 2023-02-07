@@ -8,10 +8,6 @@ export _HOME_
 echo $_HOME_
 cd $_HOME_
 
-build_for='
-debian:9
-'
-
 if [ "$1""x" == "buildx" ]; then
     docker build -t toxcore_ready_deb9_003 .
     exit 0
