@@ -78,7 +78,7 @@ int notification_thread_stop = 1;
 int need_send_notification = 0;
 #define SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX 50
 int send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
-const int read_buffer_size = 50000;
+const int read_buffer_size = TOX_MSGV3_MAX_MESSAGE_LENGTH;
 
 struct stringlist {
     char *s; // free this one
@@ -739,7 +739,7 @@ static time_t get_unix_time(void)
 
 static void m3(const char *message_text, int message_text_bytes)
 {
-    uint8_t *msgv3_out_bin = calloc(1, read_buffer_size + 1);
+    uint8_t *msgv3_out_bin = calloc(1, read_buffer_size + 1); // plus 1 for a null byte at the end always
     if (!msgv3_out_bin)
     {
         dbg(0, "m3:error allocating memory\n");
@@ -762,7 +762,7 @@ static void m3(const char *message_text, int message_text_bytes)
     char msg_hex[msg_hex_size + 1];
     CLEAR(msg_hex);
     bin2upHex((const uint8_t *)msgv3_out_bin, length, msg_hex, msg_hex_size);
-    dbg(0, "m3:msg_hex=%s\n", msg_hex);
+    dbg(0, "m3:txtlen=%d msg_hex=%s msg_str=%s\n", message_text_bytes, msg_hex, msgv3_out_bin);
 
     struct stringlist* item = calloc(1, sizeof(struct stringlist));
     if (item)
@@ -794,32 +794,31 @@ void *thread_shell_command(void *data)
     // Open a pipe with the shell command
     FILE *pipein = popen(cmd, "r");
 
-    int8_t *read_buffer = calloc(1, read_buffer_size + 1);
+    uint8_t *read_buffer = calloc(1, read_buffer_size + 1); // plus 1 for a null byte at the end always
     while (tox_shellcmd_thread_stop != 1)
     {
         memset(read_buffer, 0, read_buffer_size);
-        fgets(read_buffer, read_buffer_size, pipein);
+        fgets((char *)read_buffer, read_buffer_size, pipein);
         if (read_buffer[strlen(read_buffer) - 1] == '\n')
         {
             read_buffer[strlen(read_buffer) - 1] = '\0'; // remove the newline
-            // read full line
-            dbg(0, "LINE=%s\n", read_buffer);
-
-            pthread_mutex_lock(&msg_lock);
-
-            if (list_items() < MAX_STRINGLIST_ENTRIES)
+            if (strlen(read_buffer) > 0)
             {
-                dbg(0, "adding string to buffer\n");
-                m3(read_buffer, strlen(read_buffer));
-                send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
-                dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
+                dbg(0, "LINE::len=%d text=%s\n", strlen(read_buffer), read_buffer);
+                pthread_mutex_lock(&msg_lock);
+                if (list_items() < MAX_STRINGLIST_ENTRIES)
+                {
+                    dbg(0, "adding string to buffer\n");
+                    m3(read_buffer, strlen(read_buffer));
+                    send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+                    dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
+                }
+                else
+                {
+                    dbg(0, "string buffer full, dropping string\n");
+                }
+                pthread_mutex_unlock(&msg_lock);
             }
-            else
-            {
-                dbg(0, "string buffer full, dropping string\n");
-            }
-
-            pthread_mutex_unlock(&msg_lock);
         }
         else
         {
@@ -831,6 +830,7 @@ void *thread_shell_command(void *data)
     }
 
     free(read_buffer);
+    pclose(pipein);
     dbg(2, "Tox:shell command thread exit!\n");
     return NULL;
 }
@@ -846,6 +846,8 @@ void send_m3(int slot_num, Tox *tox)
                                     (const uint8_t *)sl->s,
                                          sl->bytes,
                                          &error);
+
+        dbg(2, "send_m3:len=%d str=%s\n", sl->bytes, (const uint8_t *)sl->s);
         ping_push_service();
     }
 }
