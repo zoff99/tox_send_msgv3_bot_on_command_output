@@ -906,14 +906,12 @@ static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct string *s)
 
 static void ping_push_service()
 {
-    dbg(9, "ping_push_service\n");
-
     if (!NOTIFICATION__device_token)
     {
-        dbg(9, "ping_push_service: No NOTIFICATION__device_token\n");
         return;
     }
 
+    dbg(9, "ping_push_service\n");
     need_send_notification = 1;
 }
 
@@ -1052,6 +1050,7 @@ int main(void)
     list = list_new();
 
     uint32_t last_send_msg_timestamp_unix = 0;
+    uint32_t last_send_push_timestamp_unix = 0;
     uint8_t k = 0;
     toxes[k] = tox_init(k);
     dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
@@ -1104,10 +1103,6 @@ int main(void)
         dbg(2, "shell command thread Thread successfully created\n");
     }
 
-
-    long send_msg_iters = 80000;
-    long send_msg_cur_iter = send_msg_iters - 10;
-
     long save_iters = 800000;
     long counter = save_iters - 10;
 
@@ -1116,7 +1111,6 @@ int main(void)
 
     while (1 == 1) {
         counter++;
-        send_msg_cur_iter++;
         tox_iterate(toxes[k], &x);
 
         if (self_online == TOX_CONNECTION_NONE)
@@ -1139,38 +1133,34 @@ int main(void)
             counter = 0;
         }
 
-        if (send_msg_cur_iter >= send_msg_iters)
+        pthread_mutex_lock(&msg_lock);
+        if (f_online != TOX_CONNECTION_NONE)
         {
-            pthread_mutex_lock(&msg_lock);
-            if (f_online != TOX_CONNECTION_NONE)
+            if (list_items() > 0)
             {
-                if (list_items() > 0)
+                // HINT: send only every 1 s, to perserve message ordering my timestamp upto the seconds
+                if ((uint32_t)get_unix_time() > last_send_msg_timestamp_unix)
                 {
-                    // HINT: send only every 2 s, to perserve message ordering my timestamp upto the seconds
-                    if ((uint32_t)get_unix_time() > (last_send_msg_timestamp_unix + 1))
-                    {
-                        dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
-                        dbg(9, "send_m3 slot 0\n");
-                        send_m3(0, toxes[k]);
-                        last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
-                    }
-                    else
-                    {
-                        dbg(9, "send_m3:pause for 1 second\n");
-                    }
+                    dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
+                    dbg(9, "send_m3 slot 0\n");
+                    send_m3(0, toxes[k]);
+                    last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
                 }
             }
-            else
+        }
+        else
+        {
+            if (list_items() > 0)
             {
-                if (list_items() > 0)
+                // HINT: send push only every 21 seconds
+                if ((uint32_t)get_unix_time() > (last_send_push_timestamp_unix + 20))
                 {
-                    dbg(9, "ping_push_service -> (%d >= %d)\n", send_msg_cur_iter, send_msg_iters);
+                    last_send_push_timestamp_unix = (uint32_t)get_unix_time();
                     ping_push_service();
                 }
             }
-            pthread_mutex_unlock(&msg_lock);
-            send_msg_cur_iter = 0;
         }
+        pthread_mutex_unlock(&msg_lock);
 
         usleep(tox_iteration_interval(toxes[0]));
     }
