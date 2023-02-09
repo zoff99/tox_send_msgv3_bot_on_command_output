@@ -19,8 +19,8 @@
 
 #define _GNU_SOURCE
 
-
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -56,11 +56,31 @@
 #include <tox/tox.h>
 #include <curl/curl.h>
 
+
+
+// ----------- version -----------
+// ----------- version -----------
+#define VERSION_MAJOR 0
+#define VERSION_MINOR 99
+#define VERSION_PATCH 2
+static const char global_version_string[] = "0.99.2";
+// ----------- version -----------
+// ----------- version -----------
+
+
 #define CURRENT_LOG_LEVEL 9 // 0 -> error, 1 -> warn, 2 -> info, 9 -> debug
 FILE *logfile = NULL;
 
 // const char *shell_command = "rsstail -p -P -i 3 -H -u https://github.com/openwrt/openwrt/releases.atom -n 2 -";
 const char *shell_command = "./command.sh";
+
+#define PROXY_PORT_TOR_DEFAULT 9050
+int use_tor = 0;
+
+int fast_send = 0;
+int number_msgs = 0;
+uint64_t current_msg_prefix_num = 0;
+#define UINT64_MAX_AS_STR_LEN 22
 
 #define SPINS_UP_NUM 1
 int spin = SPINS_UP_NUM;
@@ -104,50 +124,6 @@ struct Node1 {
     uint16_t udp_port;
     uint16_t tcp_port;
 } nodes1[] = {
-{ "tox.novg.net", "D527E5847F8330D628DAB1814F0A422F6DC9D0A300E6C357634EE2DA88C35463", 33445, 33445 },
-{ "bg.tox.dcntrlzd.network", "20AD2A54D70E827302CDF5F11D7C43FA0EC987042C36628E64B2B721A1426E36", 33445, 33445 },
-{"91.219.59.156","8E7D0B859922EF569298B4D261A8CCB5FEA14FB91ED412A7603A585A25698832",33445,33445},
-{"85.143.221.42","DA4E4ED4B697F2E9B000EEFE3A34B554ACD3F45F5C96EAEA2516DD7FF9AF7B43",33445,33445},
-{"tox.initramfs.io","3F0A45A268367C1BEA652F258C85F4A66DA76BCAA667A49E770BCC4917AB6A25",33445,33445},
-{"144.217.167.73","7E5668E0EE09E19F320AD47902419331FFEE147BB3606769CFBE921A2A2FD34C",33445,33445},
-{"tox.abilinski.com","10C00EB250C3233E343E2AEBA07115A5C28920E9C8D29492F6D00B29049EDC7E",33445,33445},
-{"tox.novg.net","D527E5847F8330D628DAB1814F0A422F6DC9D0A300E6C357634EE2DA88C35463",33445,33445},
-{"198.199.98.108","BEF0CFB37AF874BD17B9A8F9FE64C75521DB95A37D33C5BDB00E9CF58659C04F",33445,33445},
-{"tox.kurnevsky.net","82EF82BA33445A1F91A7DB27189ECFC0C013E06E3DA71F588ED692BED625EC23",33445,33445},
-{"81.169.136.229","E0DB78116AC6500398DDBA2AEEF3220BB116384CAB714C5D1FCD61EA2B69D75E",33445,33445},
-{"205.185.115.131","3091C6BEB2A993F1C6300C16549FABA67098FF3D62C6D253828B531470B53D68",53,53},
-{"bg.tox.dcntrlzd.network","20AD2A54D70E827302CDF5F11D7C43FA0EC987042C36628E64B2B721A1426E36",33445,33445},
-{"46.101.197.175","CD133B521159541FB1D326DE9850F5E56A6C724B5B8E5EB5CD8D950408E95707",33445,33445},
-{"tox1.mf-net.eu","B3E5FA80DC8EBD1149AD2AB35ED8B85BD546DEDE261CA593234C619249419506",33445,33445},
-{"tox2.mf-net.eu","70EA214FDE161E7432530605213F18F7427DC773E276B3E317A07531F548545F",33445,33445},
-{"195.201.7.101","B84E865125B4EC4C368CD047C72BCE447644A2DC31EF75BD2CDA345BFD310107",33445,33445},
-{"tox4.plastiras.org","836D1DA2BE12FE0E669334E437BE3FB02806F1528C2B2782113E0910C7711409",33445,33445},
-{"gt.sot-te.ch","F4F4856F1A311049E0262E9E0A160610284B434F46299988A9CB42BD3D494618",33445,33445},
-{"188.225.9.167","1911341A83E02503AB1FD6561BD64AF3A9D6C3F12B5FBB656976B2E678644A67",33445,33445},
-{"122.116.39.151","5716530A10D362867C8E87EE1CD5362A233BAFBBA4CF47FA73B7CAD368BD5E6E",33445,33445},
-{"195.123.208.139","534A589BA7427C631773D13083570F529238211893640C99D1507300F055FE73",33445,33445},
-{"tox3.plastiras.org","4B031C96673B6FF123269FF18F2847E1909A8A04642BBECD0189AC8AEEADAF64",33445,33445},
-{"104.225.141.59","933BA20B2E258B4C0D475B6DECE90C7E827FE83EFA9655414E7841251B19A72C",43334,43334},
-{"139.162.110.188","F76A11284547163889DDC89A7738CF271797BF5E5E220643E97AD3C7E7903D55",33445,33445},
-{"198.98.49.206","28DB44A3CEEE69146469855DFFE5F54DA567F5D65E03EFB1D38BBAEFF2553255",33445,33445},
-{"172.105.109.31","D46E97CF995DC1820B92B7D899E152A217D36ABE22730FEA4B6BF1BFC06C617C",33445,33445},
-{"ru.tox.dcntrlzd.network","DBB2E896990ECC383DA2E68A01CA148105E34F9B3B9356F2FE2B5096FDB62762",33445,33445},
-{"91.146.66.26","B5E7DAC610DBDE55F359C7F8690B294C8E4FCEC4385DE9525DBFA5523EAD9D53",33445,33445},
-{"tox01.ky0uraku.xyz","FD04EB03ABC5FC5266A93D37B4D6D6171C9931176DC68736629552D8EF0DE174",33445,33445},
-{"tox02.ky0uraku.xyz","D3D6D7C0C7009FC75406B0A49E475996C8C4F8BCE1E6FC5967DE427F8F600527",33445,33445},
-{"tox.plastiras.org","8E8B63299B3D520FB377FE5100E65E3322F7AE5B20A0ACED2981769FC5B43725",33445,33445},
-{"kusoneko.moe","BE7ED53CD924813507BA711FD40386062E6DC6F790EFA122C78F7CDEEE4B6D1B",33445,33445},
-{"tox2.plastiras.org","B6626D386BE7E3ACA107B46F48A5C4D522D29281750D44A0CBA6A2721E79C951",33445,33445},
-{"172.104.215.182","DA2BD927E01CD05EBCC2574EBE5BEBB10FF59AE0B2105A7D1E2B40E49BB20239",33445,33445},
-    { NULL, NULL, 0, 0 }
-};
-
-struct Node2 {
-    char *ip;
-    char *key;
-    uint16_t udp_port;
-    uint16_t tcp_port;
-} nodes2[] = {
 { "tox.novg.net", "D527E5847F8330D628DAB1814F0A422F6DC9D0A300E6C357634EE2DA88C35463", 33445, 33445 },
 { "bg.tox.dcntrlzd.network", "20AD2A54D70E827302CDF5F11D7C43FA0EC987042C36628E64B2B721A1426E36", 33445, 33445 },
 {"91.219.59.156","8E7D0B859922EF569298B4D261A8CCB5FEA14FB91ED412A7603A585A25698832",33445,33445},
@@ -343,6 +319,16 @@ static void update_savedata_file(const Tox *tox, int num)
     free(savedata);
 }
 
+// gives a counter value that increaes every millisecond
+static uint64_t current_time_monotonic_default()
+{
+    uint64_t time = 0;
+    struct timespec clock_mono;
+    clock_gettime(CLOCK_MONOTONIC, &clock_mono);
+    time = 1000ULL * clock_mono.tv_sec + (clock_mono.tv_nsec / 1000000ULL);
+    return time;
+}
+
 void yieldcpu(uint32_t ms)
 {
     usleep(1000 * ms);
@@ -358,9 +344,38 @@ static Tox* tox_init(int num)
     options.ipv6_enabled = false;
     options.local_discovery_enabled = true;
     options.hole_punching_enabled = true;
-    options.udp_enabled = true;
+    // options.udp_enabled = true;
     options.tcp_port = 0; // disable tcp relay function!
     // ----- set options ------
+
+    if (use_tor == 0)
+    {
+        options.udp_enabled = true; // UDP mode
+        dbg(0, "setting UDP mode\n");
+    }
+    else
+    {
+        options.udp_enabled = false; // TCP mode
+        dbg(0, "setting TCP mode\n");
+    }
+
+    if (use_tor == 1)
+    {
+        dbg(0, "setting Tor Relay mode\n");
+        options.udp_enabled = false; // TCP mode
+        dbg(0, "setting TCP mode\n");
+        const char *proxy_host = "127.0.0.1\n";
+        dbg(0, "setting proxy_host %s", proxy_host);
+        uint16_t proxy_port = PROXY_PORT_TOR_DEFAULT;
+        dbg(0, "setting proxy_port %d\n", (int)proxy_port);
+        options.proxy_type = TOX_PROXY_TYPE_SOCKS5;
+        options.proxy_host = proxy_host;
+        options.proxy_port = proxy_port;
+    }
+    else
+    {
+        options.proxy_type = TOX_PROXY_TYPE_NONE;
+    }
 
     char *savedata_filename1 = calloc(1, 1000);
     int ret_snprintf = snprintf(savedata_filename1, 900, "savedata_%d.tox", num);
@@ -403,38 +418,30 @@ static Tox* tox_init(int num)
 static bool tox_connect(Tox *tox, int num) {
 
     dbg(9, "[%d]:bootstrapping ...\n", num);
-
-    if (num == 1)
+    for (int i = 0; nodes1[i].ip; i++)
     {
-        for (int i = 0; nodes1[i].ip; i++) {
-            uint8_t *key = (uint8_t *)calloc(1, 100);
-            hex_string_to_bin2(nodes1[i].key, key);
-            if (!key) {
-                return false; // Return because it will most likely fail again
-            }
+        uint8_t *key = (uint8_t *)calloc(1, 100);
+        hex_string_to_bin2(nodes1[i].key, key);
+        if (!key)
+        {
+            continue;
+        }
 
+        if (use_tor == 1)
+        {
+            // dummy node to bootstrap
+            tox_bootstrap(tox, "local", 7766, (uint8_t *)"2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1", NULL);
+        }
+        else
+        {
             tox_bootstrap(tox, nodes1[i].ip, nodes1[i].udp_port, key, NULL);
-            if (nodes1[i].tcp_port != 0) {
-                tox_add_tcp_relay(tox, nodes1[i].ip, nodes1[i].tcp_port, key, NULL);
-            }
-            free(key);
         }
-    }
-    else
-    {
-        for (int i = 0; nodes2[i].ip; i++) {
-            uint8_t *key = (uint8_t *)calloc(1, 100);
-            hex_string_to_bin2(nodes2[i].key, key);
-            if (!key) {
-                return false; // Return because it will most likely fail again
-            }
 
-            tox_bootstrap(tox, nodes2[i].ip, nodes2[i].udp_port, key, NULL);
-            if (nodes2[i].tcp_port != 0) {
-                tox_add_tcp_relay(tox, nodes2[i].ip, nodes2[i].tcp_port, key, NULL);
-            }
-            free(key);
+        if (nodes1[i].tcp_port != 0)
+        {
+            tox_add_tcp_relay(tox, nodes1[i].ip, nodes1[i].tcp_port, key, NULL);
         }
+        free(key);
     }
     dbg(9, "[%d]:bootstrapping done.\n", num);
 
@@ -739,17 +746,37 @@ static time_t get_unix_time(void)
 
 static void m3(const char *message_text, int message_text_bytes)
 {
-    uint8_t *msgv3_out_bin = calloc(1, read_buffer_size + 1); // plus 1 for a null byte at the end always
+    size_t prefix_bytes = 0;
+    size_t current_prefix_bytes = 0;
+    char prefix_buf[UINT64_MAX_AS_STR_LEN + 4];
+    CLEAR(prefix_buf);
+
+    if (number_msgs == 1)
+    {
+        dbg(0, "m3:add number prefix\n");
+        prefix_bytes = UINT64_MAX_AS_STR_LEN + 4;
+        current_msg_prefix_num++;
+        snprintf(prefix_buf, UINT64_MAX_AS_STR_LEN, "%"PRIu64": ", current_msg_prefix_num);
+        dbg(0, "m3:number prefix len=%d\n", strlen(prefix_buf));
+        current_prefix_bytes = strlen(prefix_buf);
+    }
+
+    uint8_t *msgv3_out_bin = calloc(1, prefix_bytes + read_buffer_size + 1); // plus 1 for a null byte at the end always
     if (!msgv3_out_bin)
     {
         dbg(0, "m3:error allocating memory\n");
         return;
     }
 
-    memcpy(msgv3_out_bin, message_text, message_text_bytes);
-    msgv3_out_bin[message_text_bytes] = 0;
-    msgv3_out_bin[message_text_bytes + 1] = 0;
-    int id_pos = message_text_bytes + 2;
+    if (number_msgs == 1)
+    {
+        memcpy(msgv3_out_bin, prefix_buf, current_prefix_bytes);
+    }
+
+    memcpy(msgv3_out_bin + current_prefix_bytes, message_text, message_text_bytes);
+    msgv3_out_bin[current_prefix_bytes + message_text_bytes] = 0;
+    msgv3_out_bin[current_prefix_bytes + message_text_bytes + 1] = 0;
+    int id_pos = current_prefix_bytes + message_text_bytes + 2;
     tox_messagev3_get_new_message_id(msgv3_out_bin + id_pos);
 
     uint32_t timestamp_unix = (uint32_t)get_unix_time();
@@ -757,7 +784,7 @@ static void m3(const char *message_text, int message_text_bytes)
     xnet_pack_u32((uint8_t *)&timestamp_unix_buf, timestamp_unix);
     memcpy(msgv3_out_bin + (id_pos + 32), &timestamp_unix_buf, (size_t)(TOX_MSGV3_TIMESTAMP_LENGTH));
 
-    int length = message_text_bytes + 2 + 32 + 4;
+    int length = message_text_bytes + 2 + 32 + 4 + current_prefix_bytes;
     int msg_hex_size = (length * 2) + 1;
     char msg_hex[msg_hex_size + 1];
     CLEAR(msg_hex);
@@ -769,7 +796,7 @@ static void m3(const char *message_text, int message_text_bytes)
     {
         item->s = msgv3_out_bin;
         item->msgv3_id = msgv3_out_bin + id_pos;
-        item->bytes = message_text_bytes + 2 + 32 + 4;
+        item->bytes = length;
         list_node_t *node = list_node_new(item);
         list_rpush(list, node);
     }
@@ -841,10 +868,15 @@ void send_m3(int slot_num, Tox *tox)
     if (node)
     {
         struct stringlist* sl = (struct stringlist*)(node->val);
+        size_t length_in_bytes = sl->bytes;
+        if (length_in_bytes > TOX_MSGV3_MAX_MESSAGE_LENGTH)
+        {
+            length_in_bytes = TOX_MSGV3_MAX_MESSAGE_LENGTH;
+        }
         Tox_Err_Friend_Send_Message error;
         tox_friend_send_message(tox, 0, TOX_MESSAGE_TYPE_NORMAL,
                                     (const uint8_t *)sl->s,
-                                         sl->bytes,
+                                         length_in_bytes,
                                          &error);
 
         dbg(2, "send_m3:len=%d str=%s\n", sl->bytes, (const uint8_t *)sl->s);
@@ -1027,11 +1059,102 @@ static void *notification_thread_func(void *data)
 
 
 
-int main(void)
+int main(int argc, char *argv[])
 {
     logfile = stdout;
     setvbuf(logfile, NULL, _IOLBF, 0);
+
+    use_tor = 0;
+    fast_send = 0;
+    number_msgs = 0;
+    current_msg_prefix_num = 0;
+    int opt;
+    const char     *short_opt = "Tfhvn";
+    struct option   long_opt[] =
+    {
+        {"help",          no_argument,       NULL, 'h'},
+        {"version",       no_argument,       NULL, 'v'},
+        {NULL,            0,                 NULL,  0 }
+    };
+
+
+    while ((opt = getopt_long(argc, argv, short_opt, long_opt, NULL)) != -1)
+    {
+        switch (opt)
+        {
+            case -1:       /* no more arguments */
+            case 0:        /* long options toggles */
+                break;
+
+            case 'T':
+                use_tor = 1;
+                break;
+
+            case 'f':
+                fast_send = 1;
+                break;
+
+            case 'n':
+                number_msgs = 1;
+                break;
+
+            case 'v':
+                printf("Tox send msgv3 Bot version: %s\n", global_version_string);
+
+                if (logfile)
+                {
+                    fclose(logfile);
+                    logfile = NULL;
+                }
+
+                return (0);
+
+            case 'h':
+                printf("Usage: %s [OPTIONS]\n", argv[0]);
+                printf("  -T,                                  use TOR as Relay\n");
+                printf("  -f,                                  send messages without delay\n");
+                printf("  -n,                                  prefix each message with a number\n");
+                printf("  -v, --version                        show version\n");
+                printf("  -h, --help                           print this help and exit\n");
+                printf("\n");
+
+                if (logfile)
+                {
+                    fclose(logfile);
+                    logfile = NULL;
+                }
+
+                return (0);
+
+            case ':':
+            case '?':
+                fprintf(stderr, "Try `%s --help' for more information.\n", argv[0]);
+
+                if (logfile)
+                {
+                    fclose(logfile);
+                    logfile = NULL;
+                }
+
+                return (-2);
+
+            default:
+                fprintf(stderr, "%s: invalid option -- %c\n", argv[0], opt);
+                fprintf(stderr, "Try `%s --help' for more information.\n", argv[0]);
+
+                if (logfile)
+                {
+                    fclose(logfile);
+                    logfile = NULL;
+                }
+
+                return (-2);
+        }
+    }
+
+
     dbg(9, "--start--\n");
+    dbg(2, "Tox send msgv3 Bot version: %s\n", global_version_string);
 
 	if (pthread_mutex_init(&msg_lock, NULL) != 0)
 	{
@@ -1050,6 +1173,7 @@ int main(void)
     list = list_new();
 
     uint32_t last_send_msg_timestamp_unix = 0;
+    uint64_t last_send_msg_timestamp_monotime_ms = -1;
     uint32_t last_send_push_timestamp_unix = 0;
     uint8_t k = 0;
     toxes[k] = tox_init(k);
@@ -1139,12 +1263,26 @@ int main(void)
             if (list_items() > 0)
             {
                 // HINT: send only every 1 s, to perserve message ordering my timestamp upto the seconds
+                //       override with "-f" (fast send) commandline option
                 if ((uint32_t)get_unix_time() > last_send_msg_timestamp_unix)
                 {
                     dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
-                    dbg(9, "send_m3 slot 0\n");
+                    dbg(9, "send_m3 oldest message\n");
                     send_m3(0, toxes[k]);
                     last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
+                }
+                else
+                {
+                    if (fast_send == 1)
+                    {
+                        // send every 700ms until message is ACKed
+                        if (current_time_monotonic_default() > last_send_msg_timestamp_monotime_ms + 700)
+                        {
+                            dbg(9, "send_m3 (fast send) oldest message\n");
+                            last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
+                            last_send_msg_timestamp_monotime_ms =  current_time_monotonic_default();
+                        }
+                    }
                 }
             }
         }
