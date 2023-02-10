@@ -65,7 +65,7 @@ jobs:
           $(pkg-config --libs toxcore libsodium libcurl) \
           tox_msgv3_bot.c \
           list.c list_iterator.c list_node.c \
-          -o test
+          -o tox_msgv3_bot
           echo "RUN:------------------------------"
           ./tox_msgv3_bot -h
           fi
