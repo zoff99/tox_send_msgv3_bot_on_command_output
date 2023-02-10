@@ -68,6 +68,5 @@ jobs:
           -o tox_msgv3_bot
           echo "RUN:------------------------------"
           ./tox_msgv3_bot -h
-          fi
 
 
