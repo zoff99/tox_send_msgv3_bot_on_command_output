@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  linux-custom-tests:
+  linux-ub20:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
@@ -31,9 +31,10 @@ jobs:
           libavformat-dev \
           libavfilter-dev \
           libx264-dev
-      - run: git submodule update --init --recursive
-      - name: build toxcore
+      - run: git clone https://github.com/zoff99/c-toxcore
+      - name: build_toxcore
         run: |
+          cd c-toxcore/ && \
           CC=clang cmake -B_build -H. -GNinja \
           -DCMAKE_INSTALL_PREFIX:PATH="$PWD/_install" \
           -DCMAKE_C_FLAGS="-g -O1 -Wno-everything -Wno-missing-variable-declarations -fno-omit-frame-pointer -fsanitize=address" \
@@ -50,7 +51,7 @@ jobs:
           -DBUILD_FUN_UTILS=OFF
           cd _build
           ninja install -j"$(nproc)"
-      - name: run custom tests
+      - name: build_and_run
         run: |
           pwd
           ls -1 ./
