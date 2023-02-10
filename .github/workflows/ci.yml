@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: |
-          RUN export DEBIAN_FRONTEND=noninteractive ; apt update && apt install -y make  \
+          export DEBIAN_FRONTEND=noninteractive ; apt update && apt install -y make  \
           curl wget git \
           coreutils autoconf libtool \
           pkg-config libsodium-dev \
