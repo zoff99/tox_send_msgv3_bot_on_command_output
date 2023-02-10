@@ -101,7 +101,6 @@ jobs:
             make install
       - name: build_and_run
         run: |
-            cd "$PWD/build/"
             gcc -O2 -g -fPIC -I$PWD/build/inst_ct/include \
             -L$PWD/build/inst_ct/lib \
             -fsanitize=address -fno-omit-frame-pointer \
