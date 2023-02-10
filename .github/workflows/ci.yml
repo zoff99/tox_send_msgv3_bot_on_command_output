@@ -69,8 +69,8 @@ jobs:
           ./tox_msgv3_bot -v
           ./tox_msgv3_bot -h
 
-  linux-deb9:
-    runs-on: debian-9
+  linux-ublatest:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - run: |
