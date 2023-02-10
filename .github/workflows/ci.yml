@@ -18,19 +18,10 @@ jobs:
           clang \
           cmake \
           git \
-          libconfig-dev \
-          libgtest-dev \
-          libopus-dev \
           libsodium-dev \
-          libvpx-dev \
           llvm-dev \
           ninja-build \
-          pkg-config \
-          libavutil-dev \
-          libavcodec-dev \
-          libavformat-dev \
-          libavfilter-dev \
-          libx264-dev
+          pkg-config
       - run: git clone https://github.com/zoff99/c-toxcore
       - name: build_toxcore
         run: |
@@ -55,8 +46,8 @@ jobs:
         run: |
           pwd
           ls -1 ./
-          export PKG_CONFIG_PATH="$PWD"/_install/lib/pkgconfig
-          export LD_LIBRARY_PATH="$PWD"/_install/lib
+          export PKG_CONFIG_PATH="$PWD"/c-toxcore/_install/lib/pkgconfig
+          export LD_LIBRARY_PATH="$PWD"/c-toxcore/_install/lib
           echo "CCC:------------------------------"
           clang -g -O3 -fno-omit-frame-pointer -fsanitize=address \
           -Wno-everything -Wno-missing-variable-declarations \
