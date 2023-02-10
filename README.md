@@ -1,1 +1,1 @@
-# Tox send msgV3 bot
+# Tox msgV3 bot
