@@ -31,7 +31,7 @@ for system_to_build_for in $build_for ; do
 
     ls -al $_HOME_/"$system_to_build_for"/
 
-    rsync -a ./tox_send_msgv3_bot_on_command_output.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
+    rsync -a ./tox_msgv3_bot.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
     rsync -a ./list.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
     rsync -a ./list_iterator.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
     rsync -a ./list_node.c --exclude=.localrun $_HOME_/"$system_to_build_for"/workspace/build/
@@ -63,20 +63,20 @@ set -x
 ls -al /workspace/build/inst_ct/lib/
 gcc -O2 -g -fPIC -I/workspace/build/inst_ct/include \
     -L/workspace/build/inst_ct/lib \
-    tox_send_msgv3_bot_on_command_output.c \
+    tox_msgv3_bot.c \
     list.c list_iterator.c list_node.c \
     /workspace/build/inst_ct/lib/libtoxcore.a \
     /workspace/build/inst_ct/lib/libtoxencryptsave.a \
     -l:libsodium.a \
     -lpthread \
     -lcurl \
-    -o tox_send_msgv3_bot_on_command_output
+    -o tox_msgv3_bot
 
 #    -fsanitize=address -fno-omit-frame-pointer \
 
 cd /workspace/build/
 
-cp -av tox_send_msgv3_bot_on_command_output /artefacts/
+cp -av tox_msgv3_bot /artefacts/
 
 ' > $_HOME_/"$system_to_build_for"/script/run.sh
 
