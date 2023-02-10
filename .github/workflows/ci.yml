@@ -61,8 +61,8 @@ jobs:
           echo "CCC:------------------------------"
           clang -g -O3 -fno-omit-frame-pointer -fsanitize=address \
           -Wno-everything -Wno-missing-variable-declarations \
-          $(pkg-config --cflags toxcore libsodium) \
-          $(pkg-config --libs toxcore libsodium) \
+          $(pkg-config --cflags toxcore libsodium libcurl) \
+          $(pkg-config --libs toxcore libsodium libcurl) \
           tox_msgv3_bot.c \
           list.c list_iterator.c list_node.c \
           -o test
