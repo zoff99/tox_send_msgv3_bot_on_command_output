@@ -79,13 +79,14 @@ jobs:
           apt-get install -y --no-install-recommends \
           make  \
           curl wget git \
-          coreutils autoconf libtool \
+          coreutils autoconf autotools-dev libtool \
           pkg-config libsodium-dev \
           libcurl4-gnutls-dev
       - run: git clone https://github.com/zoff99/c-toxcore
       - name: build_toxcore
         run: |
             export _INST_="$PWD/build/inst_ct" && \
+            cd c-toxcore && \
             export CFLAGS=" -DMIN_LOGGER_LEVEL=LOGGER_LEVEL_INFO -D_GNU_SOURCE -g -O2 \
             -I$_INST_/include/ -fPIC -Wall -Wextra -fstack-protector-all \
             -Wno-unused-function -fno-omit-frame-pointer -Wno-unused-parameter \
