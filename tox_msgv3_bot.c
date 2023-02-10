@@ -825,32 +825,36 @@ void *thread_shell_command(void *data)
     while (tox_shellcmd_thread_stop != 1)
     {
         memset(read_buffer, 0, read_buffer_size);
-        fgets((char *)read_buffer, read_buffer_size, pipein);
-        if (read_buffer[strlen(read_buffer) - 1] == '\n')
+        char *has_read = fgets((char *)read_buffer, read_buffer_size, pipein);
+
+        if (has_read)
         {
-            read_buffer[strlen(read_buffer) - 1] = '\0'; // remove the newline
-            if (strlen(read_buffer) > 0)
+            if (read_buffer[strlen(read_buffer) - 1] == '\n')
             {
-                dbg(0, "LINE::len=%d text=%s\n", strlen(read_buffer), read_buffer);
-                pthread_mutex_lock(&msg_lock);
-                if (list_items() < MAX_STRINGLIST_ENTRIES)
+                read_buffer[strlen(read_buffer) - 1] = '\0'; // remove the newline
+                if (strlen(read_buffer) > 0)
                 {
-                    dbg(0, "adding string to buffer\n");
-                    m3(read_buffer, strlen(read_buffer));
-                    send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
-                    dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
+                    dbg(0, "LINE::len=%d text=%s\n", strlen(read_buffer), read_buffer);
+                    pthread_mutex_lock(&msg_lock);
+                    if (list_items() < MAX_STRINGLIST_ENTRIES)
+                    {
+                        dbg(0, "adding string to buffer\n");
+                        m3(read_buffer, strlen(read_buffer));
+                        send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+                        dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
+                    }
+                    else
+                    {
+                        dbg(0, "string buffer full, dropping string\n");
+                    }
+                    pthread_mutex_unlock(&msg_lock);
                 }
-                else
-                {
-                    dbg(0, "string buffer full, dropping string\n");
-                }
-                pthread_mutex_unlock(&msg_lock);
             }
-        }
-        else
-        {
-            // line was truncated
-            // dbg(0, "str_buf:line was truncated:LINE=%s\n", read_buffer);
+            else
+            {
+                // line was truncated
+                // dbg(0, "str_buf:line was truncated:LINE=%s\n", read_buffer);
+            }
         }
 
         yieldcpu(100); // pause for x ms
