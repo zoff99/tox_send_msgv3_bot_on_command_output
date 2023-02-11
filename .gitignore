@@ -1,3 +1,6 @@
 debian_9/
 savedata_0.tox
 token.txt
+.idea/
+tox_msgv3_bot
+.vscode
