@@ -774,7 +774,7 @@ static void *thread_shell_command(__attribute__((unused)) void *data)
                 {
                     dbg(0, "LINE::len=%d text=%s\n", strlen(read_buffer), read_buffer);
                     pthread_mutex_lock(&msg_lock);
-                    if (list_items() < MAX_STRINGLIST_ENTRIES)
+                    if (list_items() <= MAX_STRINGLIST_ENTRIES)
                     {
                         dbg(0, "adding string to buffer\n");
                         m3(read_buffer, strlen(read_buffer));
