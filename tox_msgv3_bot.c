@@ -473,19 +473,19 @@ static bool compare_m3_id(const char *id1, const char *id2)
     CLEAR(msg_hex2);
     bin2upHex((const uint8_t *)id2, length, msg_hex2, msg_hex_size);
 
-    dbg(0, "m3:id1_hex=%s id2_hex=%s\n", msg_hex, msg_hex2);
+    dbg(8, "m3:id1_hex=%s id2_hex=%s\n", msg_hex, msg_hex2);
     // -------------------
 
     const int tox_public_key_bin_size = 32;
     int res = strncmp(id1, id2, tox_public_key_bin_size);
     if (res == 0)
     {
-        dbg(0, "m3:*equal*\n");
+        dbg(8, "m3:*equal*\n");
         return true;
     }
     else
     {
-        dbg(0, "m3:NOT EQUAL\n");
+        dbg(8, "m3:NOT EQUAL\n");
         return false;
     }
 }
@@ -497,7 +497,7 @@ static void check_m3_id(const uint8_t *message)
     {
         if (compare_m3_id((const char*)message, (const char*)((struct stringlist *)(node->val))->msgv3_id))
         {
-            dbg(0, "incoming Message:check_m3_id:slot ZERO id found\n");
+            dbg(2, "incoming Message:check_m3_id:slot ZERO id found\n");
             free(((struct stringlist *)(node->val))->s);
             free(node->val);
             list_remove(list, node);
@@ -529,11 +529,11 @@ static void m3(const char *message_text, size_t message_text_bytes)
 
     if (number_msgs == 1)
     {
-        dbg(0, "m3:add number prefix\n");
+        dbg(8, "m3:add number prefix\n");
         prefix_bytes = UINT64_MAX_AS_STR_LEN + 4;
         current_msg_prefix_num++;
         snprintf(prefix_buf, UINT64_MAX_AS_STR_LEN, "%" PRIu64 ": ", current_msg_prefix_num);
-        dbg(0, "m3:number prefix len=%d\n", strlen(prefix_buf));
+        dbg(8, "m3:number prefix len=%d\n", strlen(prefix_buf));
         current_prefix_bytes = strlen(prefix_buf);
     }
 
@@ -565,7 +565,7 @@ static void m3(const char *message_text, size_t message_text_bytes)
     char msg_hex[msg_hex_size + 1];
     CLEAR(msg_hex);
     bin2upHex((const uint8_t *)msgv3_out_bin, length, msg_hex, msg_hex_size);
-    dbg(0, "m3:txtlen=%d msg_hex=%s msg_str=%s\n", message_text_bytes, msg_hex, msgv3_out_bin);
+    dbg(8, "m3:txtlen=%d msg_hex=%s msg_str=%s\n", message_text_bytes, msg_hex, msgv3_out_bin);
 
     struct stringlist *item = calloc(1, sizeof(struct stringlist));
     if (item)
@@ -607,7 +607,7 @@ static void send_m3(__attribute__((unused)) int slot_num, Tox *tox)
 static void print_stats(Tox *tox, int num)
 {
     uint32_t num_friends = tox_self_get_friend_list_size(tox);
-    dbg(9, "[%d]:tox num_friends:%d\n", num, num_friends);
+    dbg(2, "[%d]:tox num_friends:%d\n", num, num_friends);
 }
 
 static void init_string(struct curl_string *s)
@@ -617,7 +617,7 @@ static void init_string(struct curl_string *s)
 
     if (s->ptr == NULL)
     {
-        dbg(9, "malloc() failed\n");
+        dbg(0, "malloc() failed\n");
         exit(EXIT_FAILURE);
     }
 
@@ -631,7 +631,7 @@ static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct curl_string
 
     if (s->ptr == NULL)
     {
-        dbg(9, "realloc() failed\n");
+        dbg(0, "realloc() failed\n");
         exit(EXIT_FAILURE);
     }
 
@@ -649,7 +649,7 @@ static void ping_push_service(void)
         return;
     }
 
-    dbg(9, "ping_push_service\n");
+    dbg(8, "ping_push_service\n");
     need_send_notification = 1;
 }
 
@@ -671,7 +671,7 @@ static void do_counters(uint8_t k)
     if (save_counter >= save_iters)
     {
         tox_update_savedata_file(toxes[k], k);
-        // dbg(9, "[%d]:ID:1: saving data\n", k);
+        dbg(9, "[%d]:ID:1: saving data\n", k);
     }
 
     if (save_counter >= save_iters)
@@ -692,7 +692,7 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
             }
             else
             {
-                dbg(9, "ping_push_service:NOTIFICATION_METHOD HTTPS\n");
+                dbg(8, "ping_push_service:NOTIFICATION_METHOD HTTPS\n");
                 int result = 1;
                 CURL *curl = NULL;
                 CURLcode res = 0;
@@ -725,7 +725,7 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
                             curl_easy_setopt(curl, CURLOPT_URL, buf);
                             curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0");
 
-                            dbg(9, "request=%s\n", buf);
+                            dbg(8, "request=%s\n", buf);
 
                             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
                             curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
@@ -734,7 +734,7 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
 
                             if (res != CURLE_OK)
                             {
-                                dbg(9, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                                dbg(1, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
                             }
                             else
                             {
@@ -742,12 +742,12 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
                                 curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
                                 if ((http_code < 300) && (http_code > 199))
                                 {
-                                    dbg(9, "server_answer:OK:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
+                                    dbg(8, "server_answer:OK:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
                                     result = 0;
                                 }
                                 else
                                 {
-                                    dbg(9, "server_answer:ERROR:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
+                                    dbg(1, "server_answer:ERROR:CURLINFO_RESPONSE_CODE=%ld, %s\n", http_code, s.ptr);
                                     result = 0; // do not retry, or the server may be spammed
                                 }
                                 free(s.ptr);
@@ -759,12 +759,12 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
                     }
                     else
                     {
-                        // dbg(9, "server_answer:NO send:send_notification_counter = %d\n", send_notification_counter);
+                        dbg(9, "server_answer:NO send:send_notification_counter = %d\n", send_notification_counter);
                     }
 
                     if (result == 0)
                     {
-                        dbg(9, "server_answer:need_send_notification -> reset\n");
+                        dbg(8, "server_answer:need_send_notification -> reset\n");
                         need_send_notification = 0;
 
                         pthread_mutex_lock(&msg_lock);
@@ -773,7 +773,7 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
                         {
                             send_notification_counter = 0;
                         }
-                        dbg(9, "server_answer:send_notification_counter=%d\n", send_notification_counter);
+                        dbg(8, "server_answer:send_notification_counter=%d\n", send_notification_counter);
                         pthread_mutex_unlock(&msg_lock);
                     }
                 }
@@ -809,11 +809,11 @@ static void *thread_shell_command(__attribute__((unused)) void *data)
                 read_buffer[strlen(read_buffer) - 1] = '\0'; // remove the newline
                 if (strlen(read_buffer) > 0)
                 {
-                    dbg(0, "LINE::len=%d text=%s\n", strlen(read_buffer), read_buffer);
+                    dbg(2, "LINE::len=%d text=%s\n", strlen(read_buffer), read_buffer);
                     pthread_mutex_lock(&msg_lock);
                     if (list_items() <= MAX_STRINGLIST_ENTRIES)
                     {
-                        dbg(0, "adding string to buffer\n");
+                        dbg(2, "adding string to buffer\n");
                         m3(read_buffer, strlen(read_buffer));
                         send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
                         dbg(9, "thread_shell_command:send_notification_counter=%d\n", send_notification_counter);
@@ -828,7 +828,7 @@ static void *thread_shell_command(__attribute__((unused)) void *data)
             else
             {
                 // line was truncated
-                // dbg(0, "str_buf:line was truncated:LINE=%s\n", read_buffer);
+                dbg(9, "str_buf:line was truncated:LINE=%s\n", read_buffer);
             }
         }
 
@@ -863,7 +863,7 @@ static void send_message(uint8_t k)
         if ((uint32_t)get_unix_time() > last_send_msg_timestamp_unix)
         {
             dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
-            dbg(9, "send_m3 oldest message\n");
+            dbg(8, "send_m3 oldest message\n");
             send_m3(0, toxes[k]);
             last_send_msg_timestamp_unix = (uint32_t)get_unix_time(); // NOLINT(cppcoreguidelines-narrowing-conversions)
         }
@@ -874,7 +874,7 @@ static void send_message(uint8_t k)
                 // send every 700ms until message is ACKed
                 if (current_time_monotonic_default() > last_send_msg_timestamp_monotime_ms + 700)
                 {
-                    dbg(9, "send_m3 (fast send) oldest message\n");
+                    dbg(8, "send_m3 (fast send) oldest message\n");
                     last_send_msg_timestamp_unix = (uint32_t)get_unix_time(); // NOLINT(cppcoreguidelines-narrowing-conversions)
                     last_send_msg_timestamp_monotime_ms = current_time_monotonic_default(); // NOLINT(cppcoreguidelines-narrowing-conversions)
                 }
@@ -1037,23 +1037,23 @@ static Tox *tox_init(int num)
     if (use_tor == 0)
     {
         options.udp_enabled = true; // UDP mode
-        dbg(0, "setting UDP mode\n");
+        dbg(2, "setting UDP mode\n");
     }
     else
     {
         options.udp_enabled = false; // TCP mode
-        dbg(0, "setting TCP mode\n");
+        dbg(2, "setting TCP mode\n");
     }
 
     if (use_tor == 1)
     {
-        dbg(0, "setting Tor Relay mode\n");
+        dbg(2, "setting Tor Relay mode\n");
         options.udp_enabled = false; // TCP mode
-        dbg(0, "setting TCP mode\n");
+        dbg(2, "setting TCP mode\n");
         const char *proxy_host = "127.0.0.1\n";
-        dbg(0, "setting proxy_host %s", proxy_host);
+        dbg(2, "setting proxy_host %s", proxy_host);
         uint16_t proxy_port = PROXY_PORT_TOR_DEFAULT;
-        dbg(0, "setting proxy_port %d\n", (int)proxy_port);
+        dbg(2, "setting proxy_port %d\n", (int)proxy_port);
         options.proxy_type = TOX_PROXY_TYPE_SOCKS5;
         options.proxy_host = proxy_host;
         options.proxy_port = proxy_port;
@@ -1079,7 +1079,7 @@ static Tox *tox_init(int num)
 
         if (dummy < 1)
         {
-            dbg(0, "reading savedata failed\n");
+            dbg(2, "reading savedata failed\n");
         }
 
         fclose(f);
@@ -1098,7 +1098,7 @@ static Tox *tox_init(int num)
 
 static bool tox_connect(Tox *tox, int num)
 {
-    dbg(9, "[%d]:bootstrapping ...\n", num);
+    dbg(2, "[%d]:bootstrapping ...\n", num);
     for (int i = 0; nodes[i].ip; i++)
     {
         uint8_t *key = (uint8_t *)calloc(1, 100);
@@ -1124,7 +1124,7 @@ static bool tox_connect(Tox *tox, int num)
         }
         free(key);
     }
-    dbg(9, "[%d]:bootstrapping done.\n", num);
+    dbg(2, "[%d]:bootstrapping done.\n", num);
     return true;
 }
 
@@ -1137,13 +1137,13 @@ static void self_connection_change_callback(__attribute__((unused)) Tox *tox,
     switch (status)
     {
     case TOX_CONNECTION_NONE:
-        dbg(9, "[%d]:Lost connection to the Tox network.\n", num);
+        dbg(2, "[%d]:Lost connection to the Tox network.\n", num);
         break;
     case TOX_CONNECTION_TCP:
-        dbg(9, "[%d]:Connected using TCP.\n", num);
+        dbg(2, "[%d]:Connected using TCP.\n", num);
         break;
     case TOX_CONNECTION_UDP:
-        dbg(9, "[%d]:Connected using UDP.\n", num);
+        dbg(2, "[%d]:Connected using UDP.\n", num);
         break;
     default:
         dbg(2, "[%d]:Lost connection (unknown status) to the Tox network.\n", num);
@@ -1159,19 +1159,19 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number,
                                     size_t length,
                                     __attribute__((unused)) void *user_data)
 {
-    dbg(2, "incoming Message: type=%d fnum=%d\n", type, friend_number);
+    dbg(8, "incoming Message: type=%d fnum=%d\n", type, friend_number);
     size_t msg_hex_size = (length * 2) + 1;
     char msg_hex[msg_hex_size + 1];
     CLEAR(msg_hex);
     bin2upHex((const uint8_t *)message, length, msg_hex, msg_hex_size);
-    dbg(0, "incoming Message:msg_hex=%s\n", msg_hex);
+    dbg(8, "incoming Message:msg_hex=%s\n", msg_hex);
 
     if (type == TOX_MESSAGE_TYPE_HIGH_LEVEL_ACK)
     {
         pthread_mutex_lock(&msg_lock);
         if (list_items() > 0)
         {
-            dbg(0, "incoming Message:check:slot 0\n");
+            dbg(8, "incoming Message:check:slot 0\n");
             check_m3_id(message + 3);
         }
         pthread_mutex_unlock(&msg_lock);
@@ -1181,7 +1181,7 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number,
         // HINT: check if this is a msgV3 message and then send an ACK back
         if ((message) && (length > (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD)))
         {
-            dbg(0, "incoming Message:check:1:msgv3\n");
+            dbg(8, "incoming Message:check:1:msgv3\n");
             size_t pos = length - (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD);
 
             // check for guard
@@ -1191,7 +1191,7 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number,
             // check for the msgv3 guard
             if ((g1 == 0) && (g2 == 0))
             {
-                dbg(0, "incoming Message:check:2:msgv3\n");
+                dbg(8, "incoming Message:check:2:msgv3\n");
                 size_t msgv3_ack_length = 1 + 2 + 32 + 4;
                 uint8_t *msgv3_ack_buffer = (uint8_t *)calloc(1, msgv3_ack_length + 1);
                 if (msgv3_ack_buffer)
@@ -1202,7 +1202,7 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number,
                     p = p + 2;
                     memcpy(p, (message + 3), TOX_MSGV3_MSGID_LENGTH);
                     uint32_t res = tox_friend_send_message(tox, friend_number, TOX_MESSAGE_TYPE_HIGH_LEVEL_ACK, msgv3_ack_buffer, msgv3_ack_length, NULL);
-                    dbg(0, "incoming Message:msgv3:send ACK:res=%d\n", res);
+                    dbg(8, "incoming Message:msgv3:send ACK:res=%d\n", res);
                     free(msgv3_ack_buffer);
                 }
             }
@@ -1221,13 +1221,13 @@ static void friend_connection_status_callback(__attribute__((unused)) Tox *tox,
     switch (connection_status)
     {
     case TOX_CONNECTION_NONE:
-        dbg(9, "[%d]:Lost connection to friend %d\n", num, friend_number);
+        dbg(2, "[%d]:Lost connection to friend %d\n", num, friend_number);
         break;
     case TOX_CONNECTION_TCP:
-        dbg(9, "[%d]:Connected to friend %d using TCP\n", num, friend_number);
+        dbg(2, "[%d]:Connected to friend %d using TCP\n", num, friend_number);
         break;
     case TOX_CONNECTION_UDP:
-        dbg(9, "[%d]:Connected to friend %d using UDP\n", num, friend_number);
+        dbg(2, "[%d]:Connected to friend %d using UDP\n", num, friend_number);
         break;
     default:
         dbg(2, "[%d]:Lost connection (unknown status) to friend %d\n", num, friend_number);
@@ -1247,7 +1247,7 @@ static void friend_request_callback(Tox *tox, const uint8_t *public_key,
 
     TOX_ERR_FRIEND_ADD err;
     tox_friend_add_norequest(tox, public_key, &err);
-    dbg(9, "[%d]:accepting friend request. res=%d\n", num, err);
+    dbg(2, "[%d]:accepting friend request. res=%d\n", num, err);
     tox_update_savedata_file(tox, 0);
 }
 
@@ -1257,17 +1257,17 @@ static void friend_lossless_packet_callback(__attribute__((unused)) Tox *tox,
                                             size_t length,
                                             __attribute__((unused)) void *user_data)
 {
-    dbg(9, "enter friend_lossless_packet_callback:pktid=%d\n", data[0]);
+    dbg(8, "enter friend_lossless_packet_callback:pktid=%d\n", data[0]);
 
     if (length == 0)
     {
-        dbg(0, "received empty lossless package!\n");
+        dbg(1, "received empty lossless package!\n");
         return;
     }
 
     if (data[0] == CONTROL_PROXY_MESSAGE_TYPE_PUSH_URL_FOR_FRIEND)
     {
-        dbg(0, "received CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN message\n");
+        dbg(2, "received CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN message\n");
         if (NOTIFICATION__device_token)
         {
             free(NOTIFICATION__device_token);
@@ -1275,7 +1275,7 @@ static void friend_lossless_packet_callback(__attribute__((unused)) Tox *tox,
         }
         NOTIFICATION__device_token = calloc(1, (length + 1));
         memcpy(NOTIFICATION__device_token, (data + 1), (length - 1));
-        dbg(0, "CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN: %s\n", NOTIFICATION__device_token);
+        dbg(2, "CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN: %s\n", NOTIFICATION__device_token);
         // save notification token to file
         add_token(NOTIFICATION__device_token);
     }
@@ -1370,7 +1370,7 @@ int main(int argc, char *argv[])
 
     uint8_t k = 0;
     toxes[k] = tox_init(k);
-    dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
+    dbg(8, "[%d]:ID:1: %p\n", k, toxes[k]);
 
     const char *name = "Tox Command Ping";
     tox_self_set_name(toxes[k], (const uint8_t *)name, strlen(name), NULL);
@@ -1382,7 +1382,7 @@ int main(int argc, char *argv[])
     char public_key_str1[TOX_ADDRESS_SIZE * 2];
     tox_self_get_address(toxes[k], public_key_bin1);
     to_hex(public_key_str1, public_key_bin1, TOX_ADDRESS_SIZE);
-    dbg(9, "[%d]:ID:1: %.*s\n", k, TOX_ADDRESS_SIZE * 2, public_key_str1);
+    dbg(2, "[%d]:ID:1: %.*s\n", k, TOX_ADDRESS_SIZE * 2, public_key_str1);
 
     tox_connect(toxes[k], 1);
     set_cb(toxes[k]);
