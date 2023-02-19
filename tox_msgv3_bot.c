@@ -70,49 +70,51 @@ static const char global_version_string[] = "0.99.3";
 // ----------- version -----------
 
 #define CURRENT_LOG_LEVEL 8 // 0 -> error, 1 -> warn, 2 -> info, 8 -> debug, 9 -> trace
-FILE *logfile = NULL;
+static FILE *logfile = NULL;
 
-const char *shell_command = "./command.sh";
+static const char *shell_command = "./command.sh";
 
 static bool main_loop_running;
 #define PROXY_PORT_TOR_DEFAULT 9050
-int use_tor = 0;
+static int use_tor = 0;
 
-int fast_send = 0;
-int number_msgs = 0;
-uint64_t current_msg_prefix_num = 0;
+static int fast_send = 0;
+static int number_msgs = 0;
+static uint64_t current_msg_prefix_num = 0;
 #define UINT64_MAX_AS_STR_LEN 22
 
 #define SPINS_UP_NUM 1
-int spin = SPINS_UP_NUM;
-uint8_t x = 1;
+static int spin = SPINS_UP_NUM;
+static uint8_t x = 1;
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCDFAInspection"
-struct Tox *toxes[SPINS_UP_NUM];
+static struct Tox *toxes[SPINS_UP_NUM];
 #pragma clang diagnostic pop
-int tox_shellcmd_thread_stop = 0;
-int f_online = TOX_CONNECTION_NONE;
-int self_online = TOX_CONNECTION_NONE;
+static int tox_shellcmd_thread_stop = 0;
+static int f_online = TOX_CONNECTION_NONE;
+static int self_online = TOX_CONNECTION_NONE;
 
-const char *tokenFile = "./token.txt";
+static const char *tox_name_filename = "toxname.txt";
+
+static const char *tokenFile = "./token.txt";
 static char *NOTIFICATION__device_token = NULL;
 static const char *NOTIFICATION_TOKEN_PREFIX = "https://";
-pthread_t notification_thread;
-int notification_thread_stop = 1;
-int need_send_notification = 0;
+static pthread_t notification_thread;
+static int notification_thread_stop = 1;
+static int need_send_notification = 0;
 #define SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX 50
-int send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
+static int send_notification_counter = SEND_PUSH_TRIED_FOR_1_MESSAGE_MAX;
 const int read_buffer_size = TOX_MSGV3_MAX_MESSAGE_LENGTH;
 
 #define save_iters 800000
 #define save_iters_minus_10 (800000 - 10)
-long save_counter = save_iters_minus_10;
-const long bootstrap_iters = 30000;
-long bootstrap_counter = 0;
+static long save_counter = save_iters_minus_10;
+static const long bootstrap_iters = 30000;
+static long bootstrap_counter = 0;
 
-long last_send_msg_timestamp_unix = 0;
-long last_send_msg_timestamp_monotime_ms = -1;
-long last_send_push_timestamp_unix = 0;
+static long last_send_msg_timestamp_unix = 0;
+static long last_send_msg_timestamp_monotime_ms = -1;
+static long last_send_push_timestamp_unix = 0;
 
 struct stringlist
 {
@@ -120,9 +122,9 @@ struct stringlist
     uint8_t *msgv3_id; // DO NOT free this one, since it points into "s" above
     size_t bytes;
 };
-list_t *list = NULL;
+static list_t *list = NULL;
 #define MAX_STRINGLIST_ENTRIES 50
-pthread_mutex_t msg_lock;
+static pthread_mutex_t msg_lock;
 
 struct curl_string
 {
@@ -1128,6 +1130,94 @@ static bool tox_connect(Tox *tox, int num)
     return true;
 }
 
+static void reload_name_from_file(Tox *tox)
+{
+    // TODO: this is a potentially dangerous function. please check it more!!
+    FILE *file;
+    file = fopen(tox_name_filename, "r");
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    if (file)
+    {
+        while ((read = getline(&line, &len, file)) != -1)
+        {
+            if (line)
+            {
+                if (read > 1)
+                {
+                    if (line[read] == '\r')
+                    {
+                        line[read] = '\0';
+                    }
+                    if (line[read] == '\n')
+                    {
+                        line[read] = '\0';
+                    }
+                    if (line[read - 1] == '\r')
+                    {
+                        line[read - 1] = '\0';
+                    }
+                    if (line[read - 1] == '\n')
+                    {
+                        line[read - 1] = '\0';
+                    }
+                }
+
+                if (strlen(line) > 0)
+                {
+                    // set our name to read string
+                    uint32_t self_name_max_len = tox_max_name_length();
+                    char self_name[1000];
+                    CLEAR(self_name);
+                    snprintf(self_name, (self_name_max_len - 1), "%s", line);
+
+                    for (size_t i = 0; i < strlen(self_name); i++)
+                    {
+                        if (
+                                (self_name[i] >= '0' && self_name[i] <= '9')
+                                ||
+                                (self_name[i] >= 'a' && self_name[i] <= 'z')
+                                ||
+                                (self_name[i] >= 'A' && self_name[i] <= 'Z')
+                                ||
+                                (self_name[i] == '_')
+                                ||
+                                (self_name[i] == '-')
+                                ||
+                                (self_name[i] == ' ')
+                                ||
+                                (self_name[i] == '!')
+                                ||
+                                (self_name[i] == '?')
+                                ||
+                                (self_name[i] == '+')
+                                ||
+                                (self_name[i] == '#')
+                                )
+                        {
+                            // ok, allowed character
+                        }
+                        else
+                        {
+                            // we don't allow this character in imported names
+                            self_name[i] = '_';
+                        }
+                    }
+                    dbg(2, "setting new name to:%s\n", (uint8_t *)self_name);
+                    tox_self_set_name(tox, (uint8_t *)self_name, strlen(self_name), NULL);
+                    tox_update_savedata_file(tox, 0);
+                }
+                free(line);
+                line = NULL;
+                break;
+            }
+        }
+        fclose(file);
+    }
+}
+
 static void self_connection_change_callback(__attribute__((unused)) Tox *tox,
                                             TOX_CONNECTION status, void *userdata)
 {
@@ -1372,8 +1462,12 @@ int main(int argc, char *argv[])
     toxes[k] = tox_init(k);
     dbg(8, "[%d]:ID:1: %p\n", k, toxes[k]);
 
-    const char *name = "Tox Command Ping";
-    tox_self_set_name(toxes[k], (const uint8_t *)name, strlen(name), NULL);
+    reload_name_from_file(toxes[k]);
+    if (tox_self_get_name_size(toxes[k]) == 0)
+    {
+        const char *name = "Tox Command Ping";
+        tox_self_set_name(toxes[k], (const uint8_t *)name, strlen(name), NULL);
+    }
 
     const char *status_message = "Pings you on new output";
     tox_self_set_status_message(toxes[k], (const uint8_t *)status_message, strlen(status_message), NULL);
