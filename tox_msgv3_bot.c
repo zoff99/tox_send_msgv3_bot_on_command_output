@@ -17,7 +17,10 @@
  * Boston, MA  02110-1301, USA.
  */
 
-#define _GNU_SOURCE
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeclaration-after-statement"
+
+#define _GNU_SOURCE // NOLINT(bugprone-reserved-identifier)
 
 #include <ctype.h>
 #include <inttypes.h>
@@ -66,11 +69,12 @@ static const char global_version_string[] = "0.99.3";
 // ----------- version -----------
 // ----------- version -----------
 
-#define CURRENT_LOG_LEVEL 9 // 0 -> error, 1 -> warn, 2 -> info, 9 -> debug
+#define CURRENT_LOG_LEVEL 8 // 0 -> error, 1 -> warn, 2 -> info, 8 -> debug, 9 -> trace
 FILE *logfile = NULL;
 
 const char *shell_command = "./command.sh";
 
+static bool main_loop_running;
 #define PROXY_PORT_TOR_DEFAULT 9050
 int use_tor = 0;
 
@@ -82,14 +86,17 @@ uint64_t current_msg_prefix_num = 0;
 #define SPINS_UP_NUM 1
 int spin = SPINS_UP_NUM;
 uint8_t x = 1;
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCDFAInspection"
 struct Tox *toxes[SPINS_UP_NUM];
+#pragma clang diagnostic pop
 int tox_shellcmd_thread_stop = 0;
 int f_online = TOX_CONNECTION_NONE;
 int self_online = TOX_CONNECTION_NONE;
 
 const char *tokenFile = "./token.txt";
 static char *NOTIFICATION__device_token = NULL;
-static const char *NOTIFICATION_GOTIFY_UP_PREFIX = "https://";
+static const char *NOTIFICATION_TOKEN_PREFIX = "https://";
 pthread_t notification_thread;
 int notification_thread_stop = 1;
 int need_send_notification = 0;
@@ -109,8 +116,8 @@ long last_send_push_timestamp_unix = 0;
 
 struct stringlist
 {
-    char *s;        // free this one
-    char *msgv3_id; // DO NOT free this one, since it points into "s" above
+    uint8_t *s;        // free this one
+    uint8_t *msgv3_id; // DO NOT free this one, since it points into "s" above
     size_t bytes;
 };
 list_t *list = NULL;
@@ -180,9 +187,9 @@ struct Node
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
 // function definitions ---------------------------------------------
-static void ping_push_service();
+static void ping_push_service(void);
 static void send_message(uint8_t k);
-static void trigger_push();
+static void trigger_push(void);
 static void do_counters(uint8_t k);
 // ------------------------------------------------------------------
 static bool tox_connect(Tox *tox, int num);
@@ -274,7 +281,7 @@ static void dbg(int level, const char *fmt, ...)
     }
 }
 
-static uint32_t list_items()
+static uint32_t list_items(void)
 {
     if (!list)
     {
@@ -289,6 +296,32 @@ static uint32_t list_items()
     }
     list_iterator_destroy(it);
     return count;
+}
+
+static void list_free_mem_in_items(void)
+{
+    pthread_mutex_lock(&msg_lock);
+    if (!list)
+    {
+        pthread_mutex_unlock(&msg_lock);
+        return;
+    }
+
+    list_iterator_t *it = list_iterator_new(list, LIST_HEAD);
+    list_node_t *node = list_iterator_next(it);
+    while (node)
+    {
+        struct stringlist *sl = (struct stringlist *)(node->val);
+        free(((struct stringlist *) (node->val))->s);
+        ((struct stringlist *) (node->val))->s = NULL;
+
+        free(node->val);
+        node->val = NULL;
+
+        node = list_iterator_next(it);
+    }
+    list_iterator_destroy(it);
+    pthread_mutex_unlock(&msg_lock);
 }
 
 static void hex_string_to_bin2(const char *hex_string, uint8_t *output)
@@ -308,6 +341,8 @@ static void hex_string_to_bin2(const char *hex_string, uint8_t *output)
     }
 }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
 static void to_hex(char *out, uint8_t *in, int size)
 {
     while (size--)
@@ -332,6 +367,7 @@ static void to_hex(char *out, uint8_t *in, int size)
         in++;
     }
 }
+#pragma clang diagnostic pop
 
 static void bin2upHex(const uint8_t *bin, uint32_t bin_size, char *hex, uint32_t hex_size)
 {
@@ -339,12 +375,12 @@ static void bin2upHex(const uint8_t *bin, uint32_t bin_size, char *hex, uint32_t
 
     for (size_t i = 0; i < hex_size - 1; i++)
     {
-        hex[i] = toupper(hex[i]);
+        hex[i] = (char)(toupper(hex[i]));
     }
 }
 
 // gives a counter value that increases every millisecond
-static uint64_t current_time_monotonic_default()
+static uint64_t current_time_monotonic_default(void)
 {
     struct timespec clock_mono;
     clock_gettime(CLOCK_MONOTONIC, &clock_mono);
@@ -386,7 +422,7 @@ static void add_token(const char *token_str)
     }
 }
 
-static void read_token_from_file()
+static void read_token_from_file(void)
 {
     if (!file_exists(tokenFile))
     {
@@ -423,7 +459,7 @@ static void read_token_from_file()
     fclose(f);
 }
 
-static bool compare_m3_id(const uint8_t *id1, const uint8_t *id2)
+static bool compare_m3_id(const char *id1, const char *id2)
 {
     // -------------------
     int length = 32;
@@ -459,10 +495,11 @@ static void check_m3_id(const uint8_t *message)
     list_node_t *node = list_at(list, 0);
     if (node)
     {
-        if (compare_m3_id(message, ((struct stringlist *)(node->val))->msgv3_id))
+        if (compare_m3_id((const char*)message, (const char*)((struct stringlist *)(node->val))->msgv3_id))
         {
             dbg(0, "incoming Message:check_m3_id:slot ZERO id found\n");
             free(((struct stringlist *)(node->val))->s);
+            free(node->val);
             list_remove(list, node);
         }
     }
@@ -483,7 +520,7 @@ static size_t xnet_pack_u32(uint8_t *bytes, uint32_t v)
     return p - bytes;
 }
 
-static void m3(const char *message_text, int message_text_bytes)
+static void m3(const char *message_text, size_t message_text_bytes)
 {
     size_t prefix_bytes = 0;
     size_t current_prefix_bytes = 0;
@@ -515,7 +552,7 @@ static void m3(const char *message_text, int message_text_bytes)
     memcpy(msgv3_out_bin + current_prefix_bytes, message_text, message_text_bytes);
     msgv3_out_bin[current_prefix_bytes + message_text_bytes] = 0;
     msgv3_out_bin[current_prefix_bytes + message_text_bytes + 1] = 0;
-    int id_pos = current_prefix_bytes + message_text_bytes + 2;
+    size_t id_pos = current_prefix_bytes + message_text_bytes + 2;
     tox_messagev3_get_new_message_id(msgv3_out_bin + id_pos);
 
     uint32_t timestamp_unix = (uint32_t)get_unix_time();
@@ -523,8 +560,8 @@ static void m3(const char *message_text, int message_text_bytes)
     xnet_pack_u32((uint8_t *)&timestamp_unix_buf, timestamp_unix);
     memcpy(msgv3_out_bin + (id_pos + 32), &timestamp_unix_buf, (size_t)(TOX_MSGV3_TIMESTAMP_LENGTH));
 
-    int length = message_text_bytes + 2 + 32 + 4 + current_prefix_bytes;
-    int msg_hex_size = (length * 2) + 1;
+    size_t length = message_text_bytes + 2 + 32 + 4 + current_prefix_bytes;
+    size_t msg_hex_size = (length * 2) + 1;
     char msg_hex[msg_hex_size + 1];
     CLEAR(msg_hex);
     bin2upHex((const uint8_t *)msgv3_out_bin, length, msg_hex, msg_hex_size);
@@ -605,7 +642,7 @@ static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct curl_string
     return size * nmemb;
 }
 
-static void ping_push_service()
+static void ping_push_service(void)
 {
     if (!NOTIFICATION__device_token)
     {
@@ -655,7 +692,7 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
             }
             else
             {
-                dbg(9, "ping_push_service:NOTIFICATION_METHOD GOTIFY_UP\n");
+                dbg(9, "ping_push_service:NOTIFICATION_METHOD HTTPS\n");
                 int result = 1;
                 CURL *curl = NULL;
                 CURLcode res = 0;
@@ -663,9 +700,9 @@ static void *notification_thread_func(__attribute__((unused)) void *data)
                 size_t max_buf_len = strlen(NOTIFICATION__device_token) + 1;
 
                 if (
-                        (max_buf_len <= strlen(NOTIFICATION_GOTIFY_UP_PREFIX)) ||
-                        (strncmp(NOTIFICATION_GOTIFY_UP_PREFIX, NOTIFICATION__device_token,
-                                 strlen(NOTIFICATION_GOTIFY_UP_PREFIX)) != 0))
+                        (max_buf_len <= strlen(NOTIFICATION_TOKEN_PREFIX)) ||
+                        (strncmp(NOTIFICATION_TOKEN_PREFIX, NOTIFICATION__device_token,
+                                 strlen(NOTIFICATION_TOKEN_PREFIX)) != 0))
                 {
                     // HINT: token does not start with "https://"
                 }
@@ -759,7 +796,7 @@ static void *thread_shell_command(__attribute__((unused)) void *data)
     // Open a pipe with the shell command
     FILE *pipein = popen(cmd, "r");
 
-    uint8_t *read_buffer = calloc(1, read_buffer_size + 1); // plus 1 for a null byte at the end always
+    char *read_buffer = calloc(1, read_buffer_size + 1); // plus 1 for a null byte at the end always
     while (tox_shellcmd_thread_stop != 1)
     {
         memset(read_buffer, 0, read_buffer_size);
@@ -804,14 +841,14 @@ static void *thread_shell_command(__attribute__((unused)) void *data)
     return NULL;
 }
 
-static void trigger_push()
+static void trigger_push(void)
 {
     if (list_items() > 0)
     {
         // HINT: send push only every 21 seconds
         if ((uint32_t)get_unix_time() > (last_send_push_timestamp_unix + 20))
         {
-            last_send_push_timestamp_unix = (uint32_t)get_unix_time();
+            last_send_push_timestamp_unix = (uint32_t)get_unix_time(); // NOLINT(cppcoreguidelines-narrowing-conversions)
             ping_push_service();
         }
     }
@@ -828,7 +865,7 @@ static void send_message(uint8_t k)
             dbg(9, "send_m3:times %d %d\n", (uint32_t)get_unix_time(), (last_send_msg_timestamp_unix + 1));
             dbg(9, "send_m3 oldest message\n");
             send_m3(0, toxes[k]);
-            last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
+            last_send_msg_timestamp_unix = (uint32_t)get_unix_time(); // NOLINT(cppcoreguidelines-narrowing-conversions)
         }
         else
         {
@@ -838,8 +875,8 @@ static void send_message(uint8_t k)
                 if (current_time_monotonic_default() > last_send_msg_timestamp_monotime_ms + 700)
                 {
                     dbg(9, "send_m3 (fast send) oldest message\n");
-                    last_send_msg_timestamp_unix = (uint32_t)get_unix_time();
-                    last_send_msg_timestamp_monotime_ms = current_time_monotonic_default();
+                    last_send_msg_timestamp_unix = (uint32_t)get_unix_time(); // NOLINT(cppcoreguidelines-narrowing-conversions)
+                    last_send_msg_timestamp_monotime_ms = current_time_monotonic_default(); // NOLINT(cppcoreguidelines-narrowing-conversions)
                 }
             }
         }
@@ -941,7 +978,29 @@ static void check_commandline_options(int argc, char *argv[])
 static void tox_log_cb__custom(Tox *tox, TOX_LOG_LEVEL level, const char *file, uint32_t line, const char *func,
                                const char *message, __attribute__((unused)) void *user_data)
 {
-    dbg(9, "C-TOXCORE:1:%d:%s:%d:%s:%s\n", (int)level, file, (int)line, func, message);
+    int level_fixed = 9;
+
+    if (level == TOX_LOG_LEVEL_TRACE)
+    {
+        level_fixed = 9;
+    }
+    else if (level == TOX_LOG_LEVEL_DEBUG)
+    {
+        level_fixed = 8;
+    }
+    else if (level == TOX_LOG_LEVEL_INFO)
+    {
+        level_fixed = 2;
+    }
+    else if (level == TOX_LOG_LEVEL_WARNING)
+    {
+        level_fixed = 1;
+    }
+    else if (level == TOX_LOG_LEVEL_ERROR)
+    {
+        level_fixed = 0;
+    }
+    dbg(level_fixed, "C-TOXCORE:1:%d:%s:%d:%s:%s\n", (int) level, file, (int) line, func, message);
 }
 
 static void tox_update_savedata_file(const Tox *tox, int num)
@@ -968,7 +1027,7 @@ static Tox *tox_init(int num)
     tox_options_default(&options);
 
     // ----- set options ------
-    options.ipv6_enabled = false;
+    options.ipv6_enabled = true;
     options.local_discovery_enabled = true;
     options.hole_punching_enabled = true;
     // options.udp_enabled = true;
@@ -1009,12 +1068,13 @@ static Tox *tox_init(int num)
     FILE *f = NULL;
     f = fopen(savedata_filename1, "rb");
 
+    uint8_t *savedata = NULL;
     if (f)
     {
         fseek(f, 0, SEEK_END);
         long fsize = ftell(f);
         fseek(f, 0, SEEK_SET);
-        uint8_t *savedata = calloc(1, fsize);
+        savedata = calloc(1, fsize);
         size_t dummy = fread(savedata, fsize, 1, f);
 
         if (dummy < 1)
@@ -1032,6 +1092,7 @@ static Tox *tox_init(int num)
 
     tox = tox_new(&options, NULL);
     free(savedata_filename1);
+    free(savedata);
     return tox;
 }
 
@@ -1084,6 +1145,9 @@ static void self_connection_change_callback(__attribute__((unused)) Tox *tox,
     case TOX_CONNECTION_UDP:
         dbg(9, "[%d]:Connected using UDP.\n", num);
         break;
+    default:
+        dbg(2, "[%d]:Lost connection (unknown status) to the Tox network.\n", num);
+        break;
     }
 
     self_online = status;
@@ -1096,7 +1160,7 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number,
                                     __attribute__((unused)) void *user_data)
 {
     dbg(2, "incoming Message: type=%d fnum=%d\n", type, friend_number);
-    int msg_hex_size = (length * 2) + 1;
+    size_t msg_hex_size = (length * 2) + 1;
     char msg_hex[msg_hex_size + 1];
     CLEAR(msg_hex);
     bin2upHex((const uint8_t *)message, length, msg_hex, msg_hex_size);
@@ -1118,7 +1182,7 @@ static void friend_message_callback(Tox *tox, uint32_t friend_number,
         if ((message) && (length > (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD)))
         {
             dbg(0, "incoming Message:check:1:msgv3\n");
-            int pos = length - (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD);
+            size_t pos = length - (TOX_MSGV3_MSGID_LENGTH + TOX_MSGV3_TIMESTAMP_LENGTH + TOX_MSGV3_GUARD);
 
             // check for guard
             uint8_t g1 = *(message + pos);
@@ -1165,6 +1229,9 @@ static void friend_connection_status_callback(__attribute__((unused)) Tox *tox,
     case TOX_CONNECTION_UDP:
         dbg(9, "[%d]:Connected to friend %d using UDP\n", num, friend_number);
         break;
+    default:
+        dbg(2, "[%d]:Lost connection (unknown status) to friend %d\n", num, friend_number);
+        break;
     }
 
     f_online = connection_status;
@@ -1184,13 +1251,13 @@ static void friend_request_callback(Tox *tox, const uint8_t *public_key,
     tox_update_savedata_file(tox, 0);
 }
 
-static void friend_lossless_packet_cb(__attribute__((unused)) Tox *tox,
-                                      __attribute__((unused)) uint32_t friend_number,
-                                      const uint8_t *data,
-                                      size_t length,
-                                      __attribute__((unused)) void *user_data)
+static void friend_lossless_packet_callback(__attribute__((unused)) Tox *tox,
+                                            __attribute__((unused)) uint32_t friend_number,
+                                            const uint8_t *data,
+                                            size_t length,
+                                            __attribute__((unused)) void *user_data)
 {
-    dbg(9, "enter friend_lossless_packet_cb:pktid=%d\n", data[0]);
+    dbg(9, "enter friend_lossless_packet_callback:pktid=%d\n", data[0]);
 
     if (length == 0)
     {
@@ -1201,11 +1268,51 @@ static void friend_lossless_packet_cb(__attribute__((unused)) Tox *tox,
     if (data[0] == CONTROL_PROXY_MESSAGE_TYPE_PUSH_URL_FOR_FRIEND)
     {
         dbg(0, "received CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN message\n");
+        if (NOTIFICATION__device_token)
+        {
+            free(NOTIFICATION__device_token);
+            NOTIFICATION__device_token = NULL;
+        }
         NOTIFICATION__device_token = calloc(1, (length + 1));
         memcpy(NOTIFICATION__device_token, (data + 1), (length - 1));
         dbg(0, "CONTROL_PROXY_MESSAGE_TYPE_NOTIFICATION_TOKEN: %s\n", NOTIFICATION__device_token);
         // save notification token to file
         add_token(NOTIFICATION__device_token);
+    }
+}
+
+static void file_recv_control_callback(Tox *tox,
+                                       uint32_t friend_number,
+                                       uint32_t file_number,
+                                       Tox_File_Control control,
+                                       __attribute__((unused)) void *user_data)
+{
+    dbg(8, "file_recv_control_callback: friend_number: %d file_number: %d ft_control: %d\n",
+        friend_number, file_number, control);
+}
+
+static void file_recv_callback(Tox *tox,
+                               uint32_t friend_number,
+                               uint32_t file_number,
+                               uint32_t kind,
+                               uint64_t file_size,
+                               const uint8_t *filename,
+                               size_t filename_length,
+                               __attribute__((unused)) void *user_data)
+{
+    /* We don't care about receiving avatars */
+    if (kind != TOX_FILE_KIND_DATA)
+    {
+        tox_file_control(tox, friend_number, file_number, TOX_FILE_CONTROL_CANCEL, NULL);
+        dbg(8, "file_recv_callback:cancel incoming avatar\n");
+        return;
+    }
+    else
+    {
+        // cancel all filetransfers. we don't want to receive files
+        tox_file_control(tox, friend_number, file_number, TOX_FILE_CONTROL_CANCEL, NULL);
+        dbg(8, "file_recv_callback:cancel incoming file\n");
+        return;
     }
 }
 
@@ -1216,10 +1323,23 @@ static void set_cb(Tox *tox)
     tox_callback_friend_connection_status(tox, friend_connection_status_callback);
     tox_callback_friend_request(tox, friend_request_callback);
     tox_callback_friend_message(tox, friend_message_callback);
-    tox_callback_friend_lossless_packet(tox, friend_lossless_packet_cb);
+    tox_callback_friend_lossless_packet(tox, friend_lossless_packet_callback);
+    // -------------------------------
+    tox_callback_file_recv_control(tox, file_recv_control_callback);
+    tox_callback_file_recv(tox, file_recv_callback);
     // ---------- CALLBACKS ----------
 }
 // tox functions ----------------------------------------------------
+
+// signal handlers --------------------------------------------------
+void INThandler(int sig)
+{
+    signal(sig, SIG_IGN);
+    dbg(1 ,"_\n");
+    dbg(1 ,"INT signal\n");
+    main_loop_running = false;
+}
+// signal handlers --------------------------------------------------
 
 // main -------------------------------------------------------------
 int main(int argc, char *argv[])
@@ -1229,7 +1349,7 @@ int main(int argc, char *argv[])
 
     check_commandline_options(argc, argv);
 
-    dbg(9, "--start--\n");
+    dbg(2, "--start--\n");
     dbg(2, "Tox send msgv3 Bot version: %s\n", global_version_string);
 
     if (pthread_mutex_init(&msg_lock, NULL) != 0)
@@ -1253,10 +1373,10 @@ int main(int argc, char *argv[])
     dbg(9, "[%d]:ID:1: %p\n", k, toxes[k]);
 
     const char *name = "Tox Command Ping";
-    tox_self_set_name(toxes[k], (uint8_t *)name, strlen(name), NULL);
+    tox_self_set_name(toxes[k], (const uint8_t *)name, strlen(name), NULL);
 
     const char *status_message = "Pings you on new output";
-    tox_self_set_status_message(toxes[k], (uint8_t *)status_message, strlen(status_message), NULL);
+    tox_self_set_status_message(toxes[k], (const uint8_t *)status_message, strlen(status_message), NULL);
 
     uint8_t public_key_bin1[TOX_ADDRESS_SIZE];
     char public_key_str1[TOX_ADDRESS_SIZE * 2];
@@ -1295,7 +1415,9 @@ int main(int argc, char *argv[])
         dbg(2, "shell command thread Thread successfully created\n");
     }
 
-    while (1 == 1)
+    main_loop_running = true;
+    signal(SIGINT, INThandler);
+    while (main_loop_running)
     {
         do_counters(k);
         pthread_mutex_lock(&msg_lock);
@@ -1317,9 +1439,14 @@ int main(int argc, char *argv[])
     pthread_join(notification_thread, NULL);
 
     tox_kill(toxes[k]);
+    list_free_mem_in_items();
     list_destroy(list);
+    free(NOTIFICATION__device_token);
+    pthread_mutex_destroy(&msg_lock);
     fclose(logfile);
 
     return 0;
 }
 // main -------------------------------------------------------------
+
+#pragma clang diagnostic pop
