@@ -38,7 +38,7 @@ jobs:
       run: pkg-config --cflags --libs toxcore libsodium libcurl
 
     - name: build
-      run: gcc -O2 -g -fPIC -fstack-protector-all $(pkg-config --cflags --libs toxcore libsodium libcurl) tox_msgv3_bot.c list.c list_iterator.c list_node.c -o tox_msgv3_bot
+      run: gcc -O2 -g -fPIC -fstack-protector-all tox_msgv3_bot.c list.c list_iterator.c list_node.c $(pkg-config --cflags --libs toxcore libsodium libcurl) -o tox_msgv3_bot
 
     - name: check build
       run: export LD_LIBRARY_PATH=/usr/local/lib ; ldd tox_msgv3_bot ; ls -al tox_msgv3_bot
