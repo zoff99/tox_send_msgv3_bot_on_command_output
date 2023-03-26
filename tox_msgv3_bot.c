@@ -1524,7 +1524,7 @@ int main(int argc, char *argv[])
             trigger_push();
         }
         pthread_mutex_unlock(&msg_lock);
-        usleep(tox_iteration_interval(toxes[0]));
+        yieldcpu(tox_iteration_interval(toxes[0]));
     }
 
     tox_shellcmd_thread_stop = 1;
